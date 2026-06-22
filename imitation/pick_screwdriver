@@ -111,9 +111,9 @@ class PickScrewdriver(Node):
             self.gripper_state.data = [0.0]
             self.isaac_gripper_publisher.publish(self.gripper_state)
 
-            self.random_move_screwdriver = self.create_publisher(Twist, '/respawn', 1)
-            twist_msg = Twist()
-            self.random_move_screwdriver.publish(twist_msg)
+            #self.random_move_screwdriver = self.create_publisher(Twist, '/respawn', 1)
+            #twist_msg = Twist()
+            #self.random_move_screwdriver.publish(twist_msg)
         else:
             self.lite6_gripper_publisher = self.create_publisher(Int32, '/gripper_switcher', 1)
             gripper_state_msg = Int32()

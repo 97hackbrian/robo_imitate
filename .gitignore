@@ -3,3 +3,7 @@ action_trajectoris/
 imitation/metadata/
 imitation/outputs/
 __pycache__/
+*.jpg
+*.png
+DATA/actions/*
+DATA/observations/*
