@@ -12,6 +12,7 @@ RUN useradd -d /${DOCKERUSER} -m \
             -c "${DOCKERUSERCOMMENT}" ${DOCKERUSER} && \
     echo "${DOCKERUSER} ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
+
 RUN pip install 'termcolor>=2.4.0' \
                 'gdown>=5.1.0' \
                 'hydra-core >=1.3.2'\
@@ -20,9 +21,11 @@ RUN pip install 'termcolor>=2.4.0' \
                 'zarr >=2.17.0' \
                 'numba >=0.59.0' \
                 'opencv-python >=4.9.0' \
-                'diffusers >=0.27.2' \
+                'diffusers==0.27.2' \
+                'huggingface-hub==0.25.2' \
                 'torchvision >=0.17.1' \
                 'datasets >=2.19.0' \
+                'numpy<2.0.0' \
                 matplotlib
 
 USER ${DOCKERUSER}
