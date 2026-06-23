@@ -29,8 +29,9 @@ The **RoboImitate** project supports imitation learning through a [**Diffusion P
 
 
 >[!IMPORTANT]  
-You need to have Docker installed. If you have an Nvidia GPU, you need to additionally follow this [guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). Additionally, you need to istall Isaac-Sim If you want to use simulation. 
+You need to have Docker installed. If you have an Nvidia GPU, you need to additionally follow this [guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). Additionally, you need to install Isaac-Sim if you want to use simulation. 
 
+> **Note on Isaac Sim:** We recommend using `nvcr.io/nvidia/isaac-sim:4.2.0`. Because this image does not have ROS 2 pre-installed, you will need to manually install `ros-humble-ros-base` inside the container as `root` and source it before running `./runapp.sh`.
 
 #### Install docker
 ```sh

@@ -126,31 +126,28 @@ docker run --name isaac-sim-4.2 \
 
 ---
 
-### Fase 3: Dentro de Isaac Sim — Verificar y configurar ROS 2
+### Fase 3: Dentro de Isaac Sim — Instalar y configurar ROS 2
 
-**Paso 3.1** — Dentro del contenedor, verificar si ROS 2 está disponible:
+**Paso 3.1** — Instalar ROS 2 Humble base (requerido para el ROS 2 Bridge en 4.2.0):
 ```bash
-# Dentro del contenedor isaac-sim-4.2
-echo $ROS_DISTRO
-which ros2
+# Dentro del contenedor isaac-sim-4.2 (como root)
+apt-get update && apt-get install -y curl software-properties-common
+curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+apt-get update && apt-get install -y ros-humble-ros-base
 ```
 
-**Paso 3.2** — Configurar variables de entorno para DDS (hacer que coincida con robo_imitate-container):
+**Paso 3.2** — Activar ROS 2 en el entorno:
 ```bash
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export ROS_DOMAIN_ID=101
+source /opt/ros/humble/setup.bash
+echo $ROS_DISTRO   # Debe decir "humble"
 ```
 
 > [!IMPORTANT]
-> Si `rmw_cyclonedds_cpp` no está instalado dentro de Isaac Sim, tendremos dos opciones:
-> - **Opción A:** Instalar CycloneDDS dentro de Isaac Sim: `apt-get update && apt-get install -y ros-humble-rmw-cyclonedds-cpp`
-> - **Opción B:** Cambiar `robo_imitate-container` a FastDDS (que es el default de Isaac Sim): Modificar el bashrc del contenedor para no establecer `RMW_IMPLEMENTATION`.
->
-> **Recomiendo Opción B** si FastDDS funciona, porque no requiere modificar la imagen de Isaac Sim.
+> Por defecto, ROS 2 Humble usa **FastDDS** (`ROS_DOMAIN_ID=0`). Para que la comunicación funcione, debemos asegurar que el contenedor `robo_imitate-container` también use FastDDS (ver Fase 5).
 
 **Paso 3.3** — Lanzar Isaac Sim con GUI:
 ```bash
-# Dentro del contenedor isaac-sim-4.2
 ./runapp.sh
 ```
 

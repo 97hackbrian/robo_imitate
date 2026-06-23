@@ -142,7 +142,8 @@ def save_data_frame(path):
                 next_done = True
                 next_success = True
 
-        i += 1
+        if file_length > 1:
+            i += 1
     df = pd.DataFrame(data)
     df.to_parquet(output_path, engine='pyarrow')
     print("File is saved on path: ", output_path)

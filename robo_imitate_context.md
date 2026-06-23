@@ -39,22 +39,39 @@ Se ha corregido exitosamente el "Dependency Hell" del repositorio original. Todo
 
 ---
 
-## 3. El Desafío Actual: Simulación con NVIDIA Isaac Sim
+## 3. El Desafío Actual: Simulación con NVIDIA Isaac Sim (Resuelto)
 
 Para cerrar el bucle y evaluar la inferencia del modelo, es mandatorio conectar el controlador de ROS 2 con el simulador Isaac Sim.
 
-* **El Problema Descubierto:** Intentar utilizar la imagen de Docker `nvcr.io/nvidia/isaac-sim:6.0.0` (Isaac Lab) arroja un error crítico (`ModuleNotFoundError: No module named 'rclpy'`). Esto sucede porque NVIDIA cambió radicalmente la inicialización del *ROS 2 Bridge* en sus versiones recientes. El script original del repositorio (`episode_generator_picking`) fue escrito para la API antigua de 2023.
+* **El Problema Descubierto:** Intentar utilizar versiones muy recientes de Isaac Sim (`6.0.0`) no funciona con el proyecto original debido a cambios masivos en OmniGraph y la falta de compatibilidad directa. Además, la versión `2023.1.1` original del proyecto fue eliminada del registro NGC.
+* **La Solución:** Utilizar la imagen **`nvcr.io/nvidia/isaac-sim:4.2.0`**, la cual ofrece un equilibrio perfecto (OmniGraph estable y compatibilidad con ROS 2 Humble). Sin embargo, esta imagen carece de la instalación base de ROS 2 necesaria para el Bridge.
 
-### Siguientes Pasos (Para el Agente de Programación)
+### Pasos para Configurar Isaac Sim 4.2.0 con ROS 2
 
-**Objetivo Inmediato:** Levantar el entorno de simulación Isaac Sim versión `2023.1.1` mediante Docker y establecer la conexión DDS (Red ROS 2) con el contenedor del controlador.
+**1. Lanzar el contenedor de Isaac Sim:**
+```bash
+docker run --name isaac-sim-4.2 --entrypoint bash -it --gpus all -e "ACCEPT_EULA=Y" --rm --network=host \
+    -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix \
+    -v ~/Documents/gits/robo_imitate:/workspace/robo_imitate \
+    nvcr.io/nvidia/isaac-sim:4.2.0
+```
 
-1. **Descargar y Ejecutar Isaac Sim 2023.1.1 (Docker):**
-   *(Dado que el usuario ya posee cuenta en NVIDIA Developers, está autorizado a descargar esta imagen).*
-   ```bash
-   docker pull nvcr.io/nvidia/isaac-sim:2023.1.1
-   
-   docker run --name isaac-sim --entrypoint bash -it --gpus all -e "ACCEPT_EULA=Y" --rm --network=host \
-       -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix \
-       -v ~/Documents/gits/robo_imitate:/workspace/robo_imitate \
-       nvcr.io/nvidia/isaac-sim:2023.1.1
+**2. Instalar ROS 2 Humble dentro del contenedor:**
+Una vez dentro del contenedor como `root`, ejecuta el siguiente script para instalar la base de ROS 2 y habilitar el Bridge:
+```bash
+# Agregar llaves y repositorios de ROS 2
+apt-get update && apt-get install -y curl software-properties-common
+curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+
+# Instalar ROS 2 base
+apt-get update && apt-get install -y ros-humble-ros-base
+
+# Activar ROS 2 en el entorno
+source /opt/ros/humble/setup.bash
+
+# Iniciar Isaac Sim
+./runapp.sh
+```
+
+Con esto, los Action Graphs de Isaac Sim podrán comunicarse exitosamente con el `robo_imitate-container` a través de DDS.
