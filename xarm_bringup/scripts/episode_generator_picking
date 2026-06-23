@@ -16,6 +16,8 @@ from enum import Enum
 import subprocess
 import re
 import numpy as np
+import random
+import math
 
 
 class EnvStates(Enum):
@@ -117,9 +119,8 @@ class ControlObjectPicking(Node):
         self.joint_state.points = [point]
         self.joint_state.joint_names = self.joint_names
 
-        # move screwdriver to random position
-        msg_arr = Twist()
-        self.publisher_respawn.publish(msg_arr)
+        # move screwdriver to random position with wide dispersion
+        self._publish_random_respawn()
 
         self.start_time = time.time()
         self.is_object_picked = False
@@ -314,8 +315,7 @@ class ControlObjectPicking(Node):
                 self.start_time = time.time()
                 self.next_episode_trigger = False
 
-                msg_arr = Twist()
-                self.publisher_respawn.publish(msg_arr)
+                self._publish_random_respawn()
                 self.get_logger().info('Move object to the random position!')
 
                 self.new_episode = True
@@ -326,6 +326,26 @@ class ControlObjectPicking(Node):
 
         if self.state is not EnvStates.RESET:
             self.publisher_speed_limiter.publish(self.target_pose)
+
+    def _publish_random_respawn(self):
+        """Generate a random screwdriver 2D position with wide dispersion
+        and publish it through the /respawn Twist topic.
+
+        Twist.linear  -> desired (x, y, z) position
+        No rotation is applied.
+
+        Constraints:
+        - X range: 0.25 – 0.42 m  (17 cm spread, within Lite6 reach)
+        - Y range: -0.08 – 0.18 m (26 cm spread, centered on camera FOV)
+        - Z fixed at table height: 0.012 m
+        """
+        msg = Twist()
+        msg.linear.x = random.uniform(0.25, 0.42)
+        msg.linear.y = random.uniform(-0.08, 0.18)
+        msg.linear.z = 0.012
+        self.publisher_respawn.publish(msg)
+        self.get_logger().info(
+            f'Respawn screwdriver -> pos=({msg.linear.x:.3f}, {msg.linear.y:.3f})')
 
 
 def main(args=None):

@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (0.19033541633838363, 0.6523017338749846, 0.3122969104590415)
-                double3 target = (2.4352551431258043, -22.08717198731439, -6.3001415984608045)
+                double3 position = (0.1876320567480793, 0.9988063381931237, 0.4598240518977305)
+                double3 target = (2.4677061979817188, -22.096757123731685, -6.2561622146853075)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -903,56 +903,35 @@ def Xform "World" (
             )
             prepend uint inputs:execIn.connect = </World/ros2_position_respawn/ros2_subscribe_twist.outputs:execOut>
             custom string inputs:script = '''import numpy as np
-import random
-from pxr import Gf, UsdGeom
-import math
+from pxr import Gf
+import omni.graph.core as og
 
 def setup(db: og.Database):
     pass
 
-
 def cleanup(db: og.Database):
     pass
-
 
 def compute(db: og.Database):
     stage = omni.usd.get_context().get_stage()
     screwdriver = stage.GetPrimAtPath("/World/screwdriver")
-    
-    x_coor = random.uniform(0.33, 0.38)
-    y_coor = random.uniform(0.05, 0.15)
-    new_position = Gf.Vec3d(x_coor, y_coor, 0.012)
-    
+
+    # Read 2D position from the Twist message (sent by episode_generator_picking)
+    graph = db.node.get_graph()
+    twist_node = graph.get_node("/World/ros2_position_respawn/ros2_subscribe_twist")
+
+    lin = og.Controller.get(
+        og.Controller.attribute("outputs:linearVelocity", twist_node))
+
+    x_coor = float(lin[0]) if lin is not None and abs(lin[0]) > 1e-6 else 0.35
+    y_coor = float(lin[1]) if lin is not None and abs(lin[1]) > 1e-6 else 0.10
+    z_coor = float(lin[2]) if lin is not None and abs(lin[2]) > 1e-6 else 0.012
+
+    new_position = Gf.Vec3d(x_coor, y_coor, z_coor)
     screwdriver.GetAttribute("xformOp:translate").Set(new_position)
-    
-    
-    new_yaw = random.uniform(175, 195)
-    print(new_yaw)
-    #rotation_axis = Gf.Vec3d(0, 0, 1)
-    #new_rotation = Gf.Rotation(rotation_axis, rotation_angle)
-    
-    #new_rotation_i = new_rotation.GetQuaternion().GetImaginary()
-    
-    #imaginary2float = Gf.Vec3f(float(new_rotation_i[0]), float(new_rotation_i[1]), float(new_rotation_i[2]))
-    
-    #quaternion_rotation = Gf.Quatf(new_rotation.GetQuaternion().GetReal(), 
-    #                               imaginary2float)
-   # print(type(quaternion_rotation))
-    print(type(screwdriver.GetAttribute("xformOp:orient").Get()))
-    print(screwdriver.GetAttribute("xformOp:orient").Get())
-    
-   
-    new_angle = Gf.Vec3d(0.0, 0.0, new_yaw)
-    w = math.cos(new_yaw / 2)
-    z = math.sin(new_yaw / 2)
-    
-    
-    quat = Gf.Quatf(w, 0.0, 0.0, z)
-    #screwdriver.GetAttribute("xformOp:rotateXYZ").Set(new_angle)
-    
-    #screwdriver.GetAttribute("xformOp:orient").Set(quat)
-    
-    
+
+    print(f"[Respawn] pos=({x_coor:.3f}, {y_coor:.3f}, {z_coor:.3f})")
+
     '''
             custom token inputs:scriptPath
             custom bool inputs:usePath
