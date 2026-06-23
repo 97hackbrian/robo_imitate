@@ -252,6 +252,70 @@ cd ~/ros2_ws/src/robo_imitate
 
 ---
 
+## Flujo de Re-Entrenamiento
+
+### Fase A: Recolección de Datos (Demostraciones Automáticas)
+En vez de manejar el robot tú mismo, hay un script heurístico (`episode_generator_picking`) que sabe cómo agarrar el destornillador usando matemáticas. Usaremos esto para generar los datos de entrenamiento.
+
+1. **Inicia Isaac Sim** (dale Play) y el controlador base:
+```bash
+ros2 launch xarm_bringup lite6_cartesian_launch.py rviz:=false sim:=true
+```
+
+2. **Abre otra terminal e inicia el grabador de episodios** (esto guardará las imágenes de la cámara y las poses en la carpeta `DATA`):
+```bash
+cd ~/ros2_ws/src/robo_imitate
+./xarm_bringup/scripts/episode_recorder --data_dir ~/ros2_ws/src/robo_imitate/DATA
+```
+
+3. **Abre una 3ra terminal e inicia el generador automático**:
+```bash
+cd ~/ros2_ws/src/robo_imitate
+./xarm_bringup/scripts/episode_generator_picking
+```
+
+> [!TIP]
+> 👉 Déjalo correr por un buen rato (ej. 30 a 50 episodios). Verás que el robot agarra el destornillador, lo levanta, lo suelta, lo mueve a otro lugar y repite. Cuando sientas que es suficiente, presiona `Ctrl+C` en los scripts.
+
+---
+
+### Fase B: Convertir los Datos a formato Parquet
+La red neuronal no lee las imágenes sueltas, necesita un archivo comprimido `.parquet`.
+
+1. **En la terminal del contenedor, ejecuta el conversor:**
+```bash
+cd ~/ros2_ws/src/robo_imitate
+./xarm_bringup/scripts/save_parquet --data_path DATA
+```
+
+Esto creará un archivo llamado algo parecido a `2024_xx_xx.parquet`. Debes moverlo y reemplazar el viejo archivo de datos:
+
+2. **Mover y reemplazar archivo:**
+```bash
+mv ~/ros2_ws/src/robo_imitate/DATA/parquest_output/*.parquet ~/ros2_ws/src/robo_imitate/imitation/data/sim_env_data.parquet
+```
+
+---
+
+### Fase C: Re-Entrenar el Modelo
+Ahora sí, entrena la red neuronal con tus nuevos datos impecables.
+
+1. **Calcula las estadísticas de normalización del nuevo dataset:**
+```bash
+cd ~/ros2_ws/src/robo_imitate
+python3 ./imitation/compute_stats --path imitation/data/sim_env_data.parquet
+```
+
+2. **Inicia el entrenamiento** (puedes subir a `--epoch 2000` si quieres que aprenda mejor):
+```bash
+python3 ./imitation/train_script --path imitation/data/sim_env_data.parquet --epoch 1000
+```
+
+> [!NOTE]
+> Una vez que termine de entrenar, los nuevos pesos sobreescribirán los anteriores en `imitation/outputs/train/`. Si repites tu prueba con `pick_screwdriver`, ¡el robot ahora debería acertar el agarre!
+
+---
+
 ## Resumen de Terminales
 
 | # | Dónde | Qué ejecutar |
