@@ -108,11 +108,11 @@ class DiffusionConfig:
     vision_backbone: str = "resnet18" #"efficientnet_b0"
     crop_shape: tuple[int, int] | None = (84, 84)
     crop_is_random: bool = True
-    pretrained_backbone_weights: str | None = None
-    use_group_norm: bool = True
+    pretrained_backbone_weights: str | None = "IMAGENET1K_V1"
+    use_group_norm: bool = False
     spatial_softmax_num_keypoints: int = 32
     # Unet.
-    down_dims: tuple[int, ...] = (512, 1024, 2048)
+    down_dims: tuple[int, ...] = (128, 256, 512)
     kernel_size: int = 5
     n_groups: int = 8
     diffusion_step_embed_dim: int = 128

@@ -160,7 +160,7 @@ class DiffusionModel(nn.Module):
         self.rgb_encoder = DiffusionRgbEncoder(config)
         self.unet = DiffusionConditionalUnet1d(
             config,
-            global_cond_dim=(config.output_shapes["action"][0] + self.rgb_encoder.feature_dim)
+            global_cond_dim=(self.rgb_encoder.feature_dim)
             * config.n_obs_steps,
         )
 
@@ -227,8 +227,9 @@ class DiffusionModel(nn.Module):
         # Separate batch and sequence dims.
         
         img_features = einops.rearrange(img_features, "(b n) ... -> b n ...", b=batch_size)
-        # Concatenate state and image features then flatten to (B, global_cond_dim).
-        global_cond = torch.cat([batch["observation.state"], img_features], dim=-1).flatten(start_dim=1)
+        # Completely ignore state to prevent posterior collapse (state overfitting)
+        # The actions are relative deltas, so the image alone is sufficient.
+        global_cond = img_features.flatten(start_dim=1)
 
         # run sampling
         sample = self.conditional_sample(batch_size, global_cond=global_cond)
@@ -265,8 +266,8 @@ class DiffusionModel(nn.Module):
         # breakpoint()
         # Separate batch and sequence dims.
         img_features = einops.rearrange(img_features, "(b n) ... -> b n ...", b=batch_size)
-        # Concatenate state and image features then flatten to (B, global_cond_dim).
-        global_cond = torch.cat([batch["observation.state"], img_features], dim=-1).flatten(start_dim=1)
+        # Completely ignore state to prevent posterior collapse
+        global_cond = img_features.flatten(start_dim=1)
 
         trajectory = batch["action"]
 

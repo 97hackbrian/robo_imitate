@@ -22,6 +22,7 @@ import time
 import cv2
 import os
 import tf2_ros
+import random
 
 
 def call_ros2_service(activate_controllers, deactivate_controllers):
@@ -98,8 +99,8 @@ class PickScrewdriver(Node):
         self.image  = None
         self.action = None
 
-        # 60 steps for sim 90 for real env
-        self.max_episode_steps = 90
+        # 60 steps for sim, 90 for real env
+        self.max_episode_steps = 520 if sim else 650
 
         self.sim = sim
 
@@ -113,6 +114,9 @@ class PickScrewdriver(Node):
 
             self.random_move_screwdriver = self.create_publisher(Twist, '/respawn', 1)
             twist_msg = Twist()
+            twist_msg.linear.x = random.uniform(0.25, 0.42)
+            twist_msg.linear.y = random.uniform(-0.08, 0.18)
+            twist_msg.linear.z = 0.012
             self.random_move_screwdriver.publish(twist_msg)
         else:
             self.lite6_gripper_publisher = self.create_publisher(Int32, '/gripper_switcher', 1)
@@ -188,8 +192,8 @@ class PickScrewdriver(Node):
         self.observation_current_pose = msg
 
     def image_callback(self, msg):
-        cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        cv_image = cv2.resize(cv_image, (224, 224))
+        cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
+        cv_image = cv2.resize(cv_image, (96, 96))
         self.image = cv_image
           
     def publish_pose(self):
@@ -227,11 +231,11 @@ class PickScrewdriver(Node):
 
             self.current_pose_relativ.header.stamp = self.get_clock().now().to_msg()
             self.current_pose_relativ.header.frame_id = 'gripper_link_base'
-            self.current_pose_relativ.pose.position.x = (float(self.action[0]) / 2.5)
-            self.current_pose_relativ.pose.position.y = (float(self.action[1]) / 1.0) 
-            self.current_pose_relativ.pose.position.z = (float(self.action[2]) / 3.5)
+            self.current_pose_relativ.pose.position.x = float(self.action[0])
+            self.current_pose_relativ.pose.position.y = float(self.action[1])
+            self.current_pose_relativ.pose.position.z = float(self.action[2])
 
-            quat = t3d.euler.euler2quat((self.action[3] / 1.5), (self.action[4] / 6.5), (self.action[5] / 1.5))
+            quat = t3d.euler.euler2quat(self.action[3], self.action[4], self.action[5])
 
             self.current_pose_relativ.pose.orientation.x = float(quat[1])
             self.current_pose_relativ.pose.orientation.y = float(quat[2])
@@ -254,7 +258,7 @@ class PickScrewdriver(Node):
             self.start_pose.pose = pose
             self.current_pose.pose = pose
 
-            if self.observation_current_pose.pose.position.z < 0.12:
+            if self.observation_current_pose.pose.position.z < 0.09:
                 self.state = OperationState.OPEN_GRIPPER
                 self.timer = time.time()
                 self.get_logger().info('___________________________________ END ___________________________________')
@@ -277,7 +281,7 @@ class PickScrewdriver(Node):
                 msg.data = 1
                 self.lite6_gripper_publisher.publish(msg)
 
-            if time.time() - self.timer > 1.5:
+            if time.time() - self.timer > 0.4:
                 self.state = OperationState.GO_CLOSE
                 self.timer = time.time()
 
