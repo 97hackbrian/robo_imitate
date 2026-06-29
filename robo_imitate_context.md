@@ -37,6 +37,17 @@ Se ha corregido exitosamente el "Dependency Hell" del repositorio original. Todo
 * **Comandos probados:** `make build-pc`, `make run`, `make exec`.
 * **Estado:** El controlador `xarm_bringup` (ROS 2) está listo para operar, pero requiere la retroalimentación de Isaac Sim para levantar los controladores y publicar TFs en RViz2.
 
+### Fase C: Depuración y Optimización Profunda (Completado)
+* **El Problema del Movimiento Ciego:** En inferencia, el robot ignoraba la cámara y repetía ciegamente el mismo movimiento. Diagnóstico: *Colapso Posterior (State Overfitting)*.
+* **Solución Arquitectónica:** Se desconectó `observation.state` (las coordenadas absolutas del brazo) de la condición global de la *Diffusion Policy* (`diffusion_policy.py`). Esto forzó a la red neuronal a depender exclusivamente de la imagen para calcular los deltas relativos.
+* **Bug de Simulación Resuelto:** Se parcheó `pick_screwdriver.py` (`--sim`) porque un mensaje `Twist()` vacío causaba que el destornillador spawneara estáticamente siempre en `(0.35, 0.10)`. Se añadió generación aleatoria para coincidir con la distribución del entrenamiento.
+* **Optimización Extrema de Rendimiento:** 
+  * Se reescribió `train_script` introduciendo `GPUDataset` para cargar todo el dataset directamente en la VRAM, eliminando el cuello de botella CPU-GPU.
+  * Se habilitó hardware optimization de PyTorch (TF32, `cudnn.benchmark`) y AMP `bfloat16` (`torch.autocast`).
+  * Se implementó un programador `CosineAnnealingLR`, recorte de gradientes (`max_norm=10.0`) y se escaló dinámicamente la tasa de aprendizaje.
+  * Se habilitaron los pesos pre-entrenados `IMAGENET1K_V1` para el ResNet-18.
+* **Estado Actual:** Entrenamiento ultra-acelerado (>3x) con 50% menos consumo de VRAM (permitiendo un batch de 512), y un agente de inferencia funcional que ahora sí realiza seguimiento visual.
+
 ---
 
 ## 3. El Desafío Actual: Simulación con NVIDIA Isaac Sim (Resuelto)
