@@ -23,6 +23,11 @@ import cv2
 import os
 import tf2_ros
 import random
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
+import math
+import numpy as np
 
 
 def call_ros2_service(activate_controllers, deactivate_controllers):
@@ -64,8 +69,9 @@ def check_pose_stamped_values(pose_stamped_msg):
 
 class PickScrewdriver(Node):
 
-    def __init__(self, sim):
+    def __init__(self, sim, random_spawn=False):
         super().__init__('pick_screwdriver')
+        self.random_spawn = random_spawn
         self.get_logger().info("PickScrewdriver node started")
 
         self.image_subscriber = self.create_subscription(
@@ -114,8 +120,16 @@ class PickScrewdriver(Node):
 
             self.random_move_screwdriver = self.create_publisher(Twist, '/respawn', 1)
             twist_msg = Twist()
-            twist_msg.linear.x = random.uniform(0.25, 0.42)
-            twist_msg.linear.y = random.uniform(-0.08, 0.18)
+            
+            if self.random_spawn:
+                self.target_spawn_x = random.uniform(0.25, 0.42)
+                self.target_spawn_y = random.uniform(0.12, 0.2)
+            else:
+                self.target_spawn_x = 0.35
+                self.target_spawn_y = 0.10
+                
+            twist_msg.linear.x = self.target_spawn_x
+            twist_msg.linear.y = self.target_spawn_y
             twist_msg.linear.z = 0.012
             self.random_move_screwdriver.publish(twist_msg)
         else:
@@ -163,7 +177,17 @@ class PickScrewdriver(Node):
 
         self.plotting_observations = []
         self.plotting_actions = []
+
+        # Metrics setup
+        now_str = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        self.metrics_folder = f"imitation/outputs/results/{now_str}"
+        os.makedirs(self.metrics_folder, exist_ok=True)
+        self.global_csv_path = "imitation/outputs/results/global_metrics.csv"
         
+        self.target_spawn_x = None
+        self.target_spawn_y = None
+        self.final_gripper_x = None
+        self.final_gripper_y = None
     
     def get_transform(self, target_frame, source_frame):
         try:
@@ -259,6 +283,8 @@ class PickScrewdriver(Node):
             self.current_pose.pose = pose
 
             if self.observation_current_pose.pose.position.z < 0.09:
+                self.final_gripper_x = self.observation_current_pose.pose.position.x
+                self.final_gripper_y = self.observation_current_pose.pose.position.y
                 self.state = OperationState.OPEN_GRIPPER
                 self.timer = time.time()
                 self.get_logger().info('___________________________________ END ___________________________________')
@@ -320,9 +346,78 @@ class PickScrewdriver(Node):
                     msg.data = 2
                     self.lite6_gripper_publisher.publish(msg)
 
-                self.get_logger().info(f"Finished publishing. Shutting down node...")
+                self.get_logger().info(f"Finished publishing. Saving metrics and shutting down node...")
+                self.save_metrics()
                 rclpy.shutdown()
                 exit(0)
+
+    def save_metrics(self):
+        # 1. Target Reaching Error
+        error = -1.0
+        if self.target_spawn_x is not None and self.final_gripper_x is not None:
+            error = math.sqrt((self.final_gripper_x - self.target_spawn_x)**2 + (self.final_gripper_y - self.target_spawn_y)**2)
+        
+        # 2. Smoothness / Jerk (Variance of deltas)
+        actions = np.array(self.plotting_actions)
+        smoothness = -1.0
+        if len(actions) > 1:
+            deltas = np.diff(actions, axis=0)
+            smoothness = float(np.var(deltas))
+
+        # 3. Create DataFrame
+        df = pd.DataFrame([{
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "target_spawn_x": self.target_spawn_x,
+            "target_spawn_y": self.target_spawn_y,
+            "final_gripper_x": self.final_gripper_x,
+            "final_gripper_y": self.final_gripper_y,
+            "target_reaching_error": error,
+            "steps_to_converge": self.step,
+            "trajectory_variance": smoothness
+        }])
+
+        # Save to local run folder
+        local_csv = os.path.join(self.metrics_folder, "run_metrics.csv")
+        df.to_csv(local_csv, index=False)
+
+        # Save/Append to global CSV
+        if not os.path.exists(self.global_csv_path):
+            df.to_csv(self.global_csv_path, index=False)
+        else:
+            df.to_csv(self.global_csv_path, mode='a', header=False, index=False)
+
+        # Plot 2D Trajectory (Top-Down view)
+        if len(self.plotting_observations) > 0:
+            obs = np.array(self.plotting_observations)
+            plt.figure(figsize=(10, 8))
+            plt.plot(obs[:, 0], obs[:, 1], label="Gripper Trajectory", color="blue", linewidth=2)
+            plt.scatter(obs[0, 0], obs[0, 1], color="green", s=100, label="Start", zorder=5)
+            
+            if self.final_gripper_x is not None:
+                plt.scatter(self.final_gripper_x, self.final_gripper_y, color="blue", marker="X", s=100, label="Final Gripper Pose", zorder=5)
+            
+            if self.target_spawn_x is not None:
+                plt.scatter(self.target_spawn_x, self.target_spawn_y, color="red", marker="*", s=200, label="Screwdriver Target", zorder=5)
+
+            plt.title("Top-Down View (X-Y Plane)")
+            plt.xlabel("X axis")
+            plt.ylabel("Y axis")
+            plt.legend()
+            plt.grid(True)
+            plot_path = os.path.join(self.metrics_folder, "trajectory_2d.png")
+            plt.savefig(plot_path, bbox_inches='tight')
+            plt.close()
+
+            # Plot Z trajectory
+            plt.figure(figsize=(10, 4))
+            plt.plot(range(len(obs)), obs[:, 2], color="purple", linewidth=2)
+            plt.title("Z-axis (Height) over Steps")
+            plt.xlabel("Step")
+            plt.ylabel("Z Height")
+            plt.grid(True)
+            plot_path_z = os.path.join(self.metrics_folder, "trajectory_z.png")
+            plt.savefig(plot_path_z, bbox_inches='tight')
+            plt.close()
 
        
         if check_pose_stamped_values(self.current_pose_relativ):
@@ -333,10 +428,11 @@ def main(args=None):
     import argparse
     parser = argparse.ArgumentParser(description='PickScrewdriver')
     parser.add_argument('--sim', action='store_true', help='Use simulation')
+    parser.add_argument('--random', action='store_true', help='Use random object spawning in sim')
     parsed_args = parser.parse_args()
 
     rclpy.init(args=args)
-    cmd_vel_publisher = PickScrewdriver(parsed_args.sim)
+    cmd_vel_publisher = PickScrewdriver(parsed_args.sim, parsed_args.random)
     rclpy.spin(cmd_vel_publisher)
     cmd_vel_publisher.destroy_node()
     rclpy.shutdown()
