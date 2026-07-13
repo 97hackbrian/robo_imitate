@@ -11,25 +11,49 @@ class GPUDataset:
     """
     Loads the entire dataset into GPU VRAM once at startup.
     Training batches are pure GPU index ops — zero CPU-GPU transfer per step.
+    Optimized to load samples in parallel batches and only keep required keys.
     """
     def __init__(self, base_dataset, device):
         n = len(base_dataset)
-        print(f"Loading {n} samples into GPU VRAM...")
+        print(f"Loading {n} samples into GPU VRAM in parallel...")
 
-        sample0 = base_dataset[0]
+        # Keep only keys that are actually used by the model
+        required_keys = {"observation.state", "observation.image", "action", "action_is_pad"}
+
+        # Use a DataLoader to fetch data in parallel batches
+        dataloader = torch.utils.data.DataLoader(
+            base_dataset,
+            batch_size=256,
+            num_workers=4,
+            shuffle=False,
+            pin_memory=True
+        )
+
         self.data = {}
-        for key, val in sample0.items():
-            if isinstance(val, torch.Tensor):
-                self.data[key] = torch.empty(n, *val.shape, dtype=val.dtype, device=device)
-                self.data[key][0].copy_(val)
+        first_batch = next(iter(dataloader))
+        
+        for key, val in first_batch.items():
+            if key in required_keys and isinstance(val, torch.Tensor):
+                self.data[key] = torch.empty(n, *val.shape[1:], dtype=val.dtype, device=device)
 
-        for i in range(1, n):
-            if i % 2000 == 0:
-                used_mb = torch.cuda.memory_allocated() / 1e6
-                print(f"  {i}/{n}  VRAM: {used_mb:.0f}MB")
-            sample = base_dataset[i]
+        # Copy the first batch
+        start_idx = 0
+        batch_len = len(first_batch["index"]) if "index" in first_batch else len(next(iter(first_batch.values())))
+        for key in self.data:
+            self.data[key][start_idx:start_idx + batch_len].copy_(first_batch[key])
+        start_idx += batch_len
+
+        for i, batch in enumerate(dataloader):
+            if i == 0:
+                continue
+            batch_len = len(batch["index"]) if "index" in batch else len(next(iter(batch.values())))
             for key in self.data:
-                self.data[key][i].copy_(sample[key])
+                self.data[key][start_idx:start_idx + batch_len].copy_(batch[key])
+            start_idx += batch_len
+            
+            if start_idx % 2048 == 0 or start_idx == n:
+                used_mb = torch.cuda.memory_allocated() / 1e6
+                print(f"  {start_idx}/{n}  VRAM: {used_mb:.0f}MB")
 
         used_mb = torch.cuda.memory_allocated() / 1e6
         print(f"GPU cache complete. Dataset VRAM: {used_mb:.0f}MB")
@@ -59,7 +83,6 @@ def main(root, epoch, batch_size):
     torch.set_float32_matmul_precision('high')
     torch.backends.cudnn.benchmark = True
 
-    training_steps = epoch
     device = torch.device("cuda")
     log_freq = 20
 
@@ -76,27 +99,33 @@ def main(root, epoch, batch_size):
     policy.train()
     policy.to(device)
 
+    # Optional torch.compile for extra step execution speed
+    try:
+        print("Compiling model for faster step execution...")
+        policy = torch.compile(policy)
+        print("Model compiled successfully!")
+    except Exception as e:
+        print(f"Skipping model compilation: {e}")
+
     # sqrt-scaled LR: appropriate for Adam when varying batch size
     base_lr = 1e-4
     lr = base_lr * (batch_size / 64) ** 0.5
     print(f"batch_size={batch_size}  lr={lr:.2e}")
 
     optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=training_steps)
 
     n = len(gpu_dataset)
-    steps_per_epoch = n // batch_size
-    print(f"Steps per epoch: {steps_per_epoch} | Total steps: {training_steps} (~{training_steps // steps_per_epoch} epochs)")
+    steps_per_epoch = max(1, n // batch_size)
+    epochs = epoch
+    total_steps = epochs * steps_per_epoch
+    print(f"Total epochs: {epochs} | Steps per epoch: {steps_per_epoch} | Total training steps: {total_steps}")
 
-    # bfloat16 AMP: enables Ada Lovelace tensor cores (~3x faster compute)
-    # activations stored in bf16 -> half VRAM -> allows 2x larger batch
-    # bf16 does not need GradScaler (wide dynamic range avoids underflow)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
 
     step = 0
-    done = False
     train_losses = []
 
-    while not done:
+    for epoch_idx in range(1, epochs + 1):
         # full epoch shuffle stays on GPU
         perm = torch.randperm(n, device=device)
 
@@ -111,18 +140,13 @@ def main(root, epoch, batch_size):
             torch.nn.utils.clip_grad_norm_(policy.parameters(), max_norm=10.0)
             optimizer.step()
             scheduler.step()
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
 
             if step % log_freq == 0:
                 vram_mb = torch.cuda.memory_allocated() / 1e6
-                print(f"step: {step} loss: {loss.item():.3f} lr: {scheduler.get_last_lr()[0]:.2e} VRAM: {vram_mb:.0f}MB")
+                print(f"Epoch {epoch_idx}/{epochs} | Step {step}/{total_steps} | Loss: {loss.item():.4f} | LR: {scheduler.get_last_lr()[0]:.2e} | VRAM: {vram_mb:.0f}MB")
             step += 1
-
             train_losses.append(loss.item())
-
-            if step >= training_steps:
-                done = True
-                break
 
     plt.plot(train_losses, label='Training loss')
     plt.xlabel('Step')
@@ -138,14 +162,16 @@ def main(root, epoch, batch_size):
     name = loss_path + 'loss_' + time_now.strftime("%Y_%m_%d_%H_%M_%S") + '.png'
     plt.savefig(name, bbox_inches='tight', dpi=300)
 
-    policy.save_pretrained(output_directory)
+    # Save the original uncompiled policy if compiled
+    orig_policy = policy._orig_mod if hasattr(policy, "_orig_mod") else policy
+    orig_policy.save_pretrained(output_directory)
 
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Train diffusion policy')
     parser.add_argument('--path', type=str, help='Data path')
-    parser.add_argument('--epoch', type=int, default=200000, help='Number of training steps')
+    parser.add_argument('--epoch', type=int, default=1000, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=512, help='Batch size')
     parsed_args = parser.parse_args()
 

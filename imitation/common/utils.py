@@ -244,19 +244,15 @@ def load_previous_and_future_frames(
         data_ids = ep_data_ids[argmin_]
     
         # load frames modality
-        item[key] = hf_dataset.select_columns(key).select(data_ids)[key]
         column = hf_dataset.select_columns(key).select(data_ids)
         
-        # get element from sorted list
-        # function from lib take only one element in original implementation work
-        items= []
+        items = []
         for i in column:
-            items.append(i[key])
-        item[key] = items.copy()
-
-        # list elements to torch, because stack require tuple of tensors
-        item[key] = [torch.tensor(item) for item in item[key]]
-        item[key] = torch.stack(item[key])
+            val = i[key]
+            if not isinstance(val, torch.Tensor):
+                val = torch.tensor(val)
+            items.append(val)
+        item[key] = torch.stack(items)
 
         item[f"{key}_is_pad"] = is_pad
     

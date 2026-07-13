@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#!/usr/bin/env python3
 
 import rclpy
 from rclpy.node import Node
@@ -6,6 +6,9 @@ from geometry_msgs.msg import PoseStamped, Twist, Pose, TransformStamped
 from std_msgs.msg import Float64MultiArray
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from controller_manager_msgs.srv import SwitchController
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
+from ros2_numpy_tf import ros2numpy
 import ros2_numpy as rnp
 import transforms3d as t3d
 from std_msgs.msg import Int32
@@ -18,6 +21,11 @@ import re
 import numpy as np
 import random
 import math
+import cv2
+import os
+import argparse
+from datetime import datetime
+from copy import deepcopy
 
 
 class EnvStates(Enum):
@@ -36,16 +44,17 @@ class GripperStatus(Enum):
     CLOSE = 1
 
 
-def are_transforms_close(a, b=None, linear_tol=0.03, angular_tol=0.03):
+def are_transforms_close(a, b=None, linear_tol=0.03, angular_tol=0.03, check_angular=True):
     if b is None:
         b = np.eye(4)
     c = np.linalg.inv(a) @ b
     xyz = c[:3, 3]
     if np.any(np.abs(xyz) > linear_tol):
         return False
-    rpy = t3d.euler.mat2euler(c[:3, :3])
-    if np.any(np.abs(np.array(rpy)) > angular_tol):
-        return False
+    if check_angular:
+        rpy = t3d.euler.mat2euler(c[:3, :3])
+        if np.any(np.abs(np.array(rpy)) > angular_tol):
+            return False
     return True
 
 
@@ -71,9 +80,34 @@ def is_identity_transformation(matrix):
 
 
 class ControlObjectPicking(Node):
-    def __init__(self):
+    def __init__(self, data_dir='DATA'):
         super().__init__('control_object_picking_subscriber')
+        self.DATA_DIR = data_dir
+        self.get_logger().info(f"Saving teleoperation data to: {self.DATA_DIR}")
 
+        # Image and Pose Subscribers
+        self.image_subscriber = self.create_subscription(
+            Image,
+            '/rgb',
+            self.image_callback,
+            1)
+        self.cv_bridge = CvBridge()
+        self.image = None
+
+        self.current_pose_subscriber = self.create_subscription(
+            PoseStamped,
+            '/current_pose',
+            self.current_pose_callback,
+            1)
+
+        # Recording State Variables
+        self.observation_file = None
+        self.action_filename = None
+        self.images_folder = None
+        self.images_counter = 0
+        self.observations = []
+
+        # Target Pose publishers and clients
         self.timer = self.create_timer(0.1, self.publish_pose)
 
         self.publisher_speed_limiter = self.create_publisher(
@@ -86,16 +120,6 @@ class ControlObjectPicking(Node):
 
         self.publisher_joint_init = self.create_publisher(
             JointTrajectory, '/joint_trajectory_controller/joint_trajectory', 1)
-
-        self.publisher_start_saving = self.create_publisher(
-            Int32, '/start_episode_saving', 1)
-
-        self.current_pose_subscriber = self.create_subscription(
-            PoseStamped,
-            '/current_pose',
-            self.current_pose_callback,
-            1)
-        self.current_pose_subscriber
 
         self.switch_service = self.create_client(
             SwitchController, '/controller_manager/switch_controller')
@@ -139,8 +163,89 @@ class ControlObjectPicking(Node):
         self.current_pose = PoseStamped()
 
         self.relative_move = PoseStamped()
+        self.initial_orientation = None
 
-        self.episode_state = Int32()
+    def image_callback(self, msg):
+        try:
+            cv2_img = self.cv_bridge.imgmsg_to_cv2(msg, "bgr8")
+            cv2_img = cv2.resize(cv2_img, (96, 96))
+            self.image = cv2_img
+        except CvBridgeError as e:
+            self.get_logger().error(f"CvBridge Error: {e}")
+
+    def current_pose_callback(self, msg):
+        self.current_pose = msg
+
+    def get_action_from_observations(self, observations):
+        actions = []
+
+        for idx in range(len(observations)):
+            observation = ros2numpy(observations[idx])
+            
+            if idx < len(observations) - 1:
+                next_observation = ros2numpy(observations[idx + 1])
+            else:
+                next_observation = observation # Last frame has zero relative movement (identity)
+
+            action = np.linalg.inv(observation) @ next_observation
+
+            translation = action[:3, 3]
+
+            rotation = t3d.euler.mat2euler(action[:3, :3])
+
+            pose = np.concatenate((translation, rotation))     
+
+            action_str = '[{}]'.format(', '.join(map(str, pose))) + '\n'
+
+            actions.append(action_str)
+
+        return actions
+
+    def save_episode(self, dir_path):
+        date = datetime.now()
+        episode_name = date.strftime("%Y_%m_%d_%H_%M_%S")
+        self.images_folder = dir_path + '/' + episode_name
+        observation_folder = dir_path + '/observations'
+        action_folder = dir_path + '/actions'
+
+        os.makedirs(dir_path, exist_ok=True)
+        os.makedirs(self.images_folder, exist_ok=True)
+        os.makedirs(observation_folder, exist_ok=True)
+        os.makedirs(action_folder, exist_ok=True)
+
+        observation_file_name = observation_folder + '/' + episode_name + '.txt'
+        action_file_name = action_folder + '/' + episode_name + '.txt'
+
+        self.observation_file = open(observation_file_name, "a")
+        self.action_filename = open(action_file_name, "a")
+        self.get_logger().info(f'Episode {episode_name} saving started...')
+
+    def save_current_frame(self):
+        img = self.image
+        if self.images_folder is None or img is None:
+            return False
+        
+        x_pos = self.current_pose.pose.position.x
+        y_pos = self.current_pose.pose.position.y
+        z_pos = self.current_pose.pose.position.z
+
+        x_ori = self.current_pose.pose.orientation.x
+        y_ori = self.current_pose.pose.orientation.y
+        z_ori = self.current_pose.pose.orientation.z
+        w_ori = self.current_pose.pose.orientation.w
+
+        quat = [w_ori, x_ori, y_ori, z_ori]
+        euler_angles_o = t3d.euler.quat2euler(quat)
+
+        observation = (
+            f"[{x_pos}, {y_pos}, {z_pos}, {euler_angles_o[0]}, {euler_angles_o[1]}, {euler_angles_o[2]}]\n")
+
+        image_name = self.images_folder + '/' + str(self.images_counter) + '.jpg'
+        cv2.imwrite(image_name, img)
+        self.observation_file.write(observation)
+
+        self.images_counter += 1
+        return True
 
     def switch_motion_controller(self, activate_controllers, deactivate_controllers):
         request = SwitchController.Request()
@@ -160,34 +265,37 @@ class ControlObjectPicking(Node):
             self.get_logger().error(f"Failed to get transform: {e}")
             return None
 
-    def current_pose_callback(self, msg):
-        self.current_pose = msg
-
     def publish_pose(self):
+        # TF transforms lookup
+        gripper_target_tf = self.get_transform('gripper_base_link', 'pick_target')
+        base_gripper_tf = self.get_transform('link_base', 'gripper_base_link')
+
+        if gripper_target_tf is None or base_gripper_tf is None:
+            return
+
         if self.previous_state != self.state:
             self.previous_state = self.state
 
+        # Save current observation if recording is enabled
         if not self.skip_saving:
-            self.episode_state.data = 1
-            self.publisher_start_saving.publish(self.episode_state)
+            if self.save_current_frame():
+                self.observations.append(deepcopy(self.current_pose))
 
         self.target_pose.header.stamp = self.get_clock().now().to_msg()
         self.target_pose.header.frame_id = 'link_base'
-
-        gripper_target_tf = self.get_transform(
-            'gripper_base_link', 'pick_target')
-        base_gripper_tf = self.get_transform('link_base', 'gripper_base_link')
-
-        if gripper_target_tf is None:
-            return
-
-        if base_gripper_tf is None:
-            return
 
         gripper_target = rnp.numpify(gripper_target_tf.transform)
         base_gripper = rnp.numpify(base_gripper_tf.transform)
 
         target_transform = base_gripper @ gripper_target
+
+        # Record initial orientation to keep the gripper vertical relative to camera/table
+        if self.initial_orientation is None:
+            self.initial_orientation = base_gripper[:3, :3].copy()
+
+        # Overwrite orientation to stay vertical, ignoring the screwdriver's horizontal rotation
+        if self.initial_orientation is not None:
+            target_transform[:3, :3] = self.initial_orientation
 
         previous_pose = rnp.numpify(self.previous_pose.pose)
         current_pose = rnp.numpify(self.current_pose.pose)
@@ -224,25 +332,39 @@ class ControlObjectPicking(Node):
                     self.skip_saving = False
                     self.end_episode_cnt = 0
 
-                    # create new episode file
-                    self.episode_state.data = 2
-                    self.publisher_start_saving.publish(self.episode_state)
+                    self.save_episode(self.DATA_DIR)
+                    self.images_counter = 0
+                    self.observations = []
 
         elif self.state == EnvStates.MOVE:
             self.target_pose.pose = pose
-            if are_transforms_close(gripper_target):
-                # dummy action in the end
-                self.episode_state.data = 1
-                self.publisher_start_saving.publish(self.episode_state)
+            if are_transforms_close(gripper_target, check_angular=False):
+                # Save final frame
+                if not self.skip_saving:
+                    if self.save_current_frame():
+                        self.observations.append(deepcopy(self.current_pose))
                 self.skip_saving = True
+
                 if self.end_episode_cnt > 10:
                     self.state = EnvStates.GO_CLOSE
                     self.target_pose.pose.position.z = 0.09
                     self.start_time = time.time()
 
-                    # end episode
-                    self.episode_state.data = 0
-                    self.publisher_start_saving.publish(self.episode_state)
+                    # End episode and save actions
+                    if len(self.observations) > 0:
+                        actions = self.get_action_from_observations(self.observations)
+                        self.action_filename.writelines(actions)
+                        self.get_logger().info(f"Saved {len(actions)} actions for this episode.")
+                        
+                        # Close files
+                        if self.observation_file:
+                            self.observation_file.close()
+                            self.observation_file = None
+                        if self.action_filename:
+                            self.action_filename.close()
+                            self.action_filename = None
+                    self.observations = []
+                    self.images_counter = 0
 
                 self.end_episode_cnt += 1
 
@@ -349,8 +471,13 @@ class ControlObjectPicking(Node):
 
 
 def main(args=None):
-    rclpy.init(args=args)
-    test = ControlObjectPicking()
+    # Parse data_dir argument from argv
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data_dir', type=str, default='DATA', help='Name of data directory.')
+    parsed_args, remaining_args = parser.parse_known_args()
+
+    rclpy.init(args=remaining_args)
+    test = ControlObjectPicking(data_dir=parsed_args.data_dir)
     rclpy.spin(test)
     test.destroy_node()
     rclpy.shutdown()

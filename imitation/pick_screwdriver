@@ -106,7 +106,7 @@ class PickScrewdriver(Node):
         self.action = None
 
         # 60 steps for sim, 90 for real env
-        self.max_episode_steps = 520 if sim else 650
+        self.max_episode_steps = 720 if sim else 950
 
         self.sim = sim
 
@@ -184,8 +184,6 @@ class PickScrewdriver(Node):
         os.makedirs(self.metrics_folder, exist_ok=True)
         self.global_csv_path = "imitation/outputs/results/global_metrics.csv"
         
-        self.target_spawn_x = None
-        self.target_spawn_y = None
         self.final_gripper_x = None
         self.final_gripper_y = None
     
@@ -239,9 +237,15 @@ class PickScrewdriver(Node):
 
     
         if self.state == OperationState.IDLE:
+            if self.sim:
+                twist_msg = Twist()
+                twist_msg.linear.x = self.target_spawn_x
+                twist_msg.linear.y = self.target_spawn_y
+                twist_msg.linear.z = 0.012
+                self.random_move_screwdriver.publish(twist_msg)
             
             self.start_pose = self.observation_current_pose
-            if self.start_pose  is not None:
+            if self.start_pose is not None and self.start_pose.pose.position.x != 0.0:
                 self.state = OperationState.INFERENCE
                 self.timer = time.time()
 

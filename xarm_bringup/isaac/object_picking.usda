@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (0.22902279220292393, 0.5795470079171843, 0.3379071344381491)
-                double3 target = (2.4677061979817316, -22.096757123731702, -6.256162214685314)
+                double3 position = (2.296849174413828, 2.499046306761516, 0.8014680012094517)
+                double3 target = (-14.305751487985564, -20.67419631684399, -4.42874576230986)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -118,6 +118,8 @@ def Xform "World" (
 
     over "lite6"
     {
+        double3 xformOp:translate = (0, 0.08502, 0)
+
         over "base_link"
         {
             over "joint1"
@@ -339,6 +341,45 @@ def Xform "World" (
                 )
                 {
                     bool physics:collisionEnabled = 1
+                }
+            }
+
+            def Xform "rsd455" (
+                kind = ""
+                prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Sensors/RealSense/D455/rsd455.usd@
+            )
+            {
+                quatf xformOp:orient = (6.123234e-17, -0.64278764, 3.935939e-17, -0.76604444)
+                float3 xformOp:scale = (1, 1, 1)
+                double3 xformOp:translate = (0.06, -1.6663063204444675e-8, 0.025)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+                over "RSD455" (
+                    delete apiSchemas = ["PhysicsRigidBodyAPI", "PhysxRigidBodyAPI"]
+                )
+                {
+                    over "Camera_Pseudo_Depth" (
+                        prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+                    )
+                    {
+                        float exposure:fStop = 5
+                        float exposure:responsivity = 1.1026709
+                        float exposure:time = 0.02
+                        float verticalAperture = 2.054531
+                        quatd xformOp:orient = (0.5, 0.5, 0.5, 0.5)
+                        double3 xformOp:translate = (0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                    }
+
+                    over "Camera_OmniVision_OV9782_Color" (
+                        prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+                    )
+                    {
+                        quatd xformOp:orient = (0.4999999999999998, 0.5000000000000002, 0.5000000000000001, 0.5)
+                        double3 xformOp:scale = (1, 0.9999989867210388, 1)
+                        double3 xformOp:translate = (0, 0.0115, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                    }
                 }
             }
         }
@@ -685,7 +726,7 @@ def Xform "World" (
             prepend apiSchemas = ["NodeGraphNodeAPI"]
         )
         {
-            custom rel inputs:cameraPrim = </World/lite6/link6/Camera> (
+            custom rel inputs:cameraPrim = </World/rsd555/Camera_OmniVision_OV9782_Color> (
                 customData = {
                     dictionary omni = {
                         dictionary graph = {
@@ -748,7 +789,7 @@ def Xform "World" (
             custom string inputs:semanticLabelsTopicName
             custom string inputs:srtxCompressionType
             custom float2 inputs:stereoOffset
-            custom string inputs:topicName
+            custom string inputs:topicName = "rgb2"
             custom token inputs:type (
                 allowedTokens = ["rgb", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d", "camera_info", "rgb_h264"]
             )
@@ -786,6 +827,7 @@ def Xform "World" (
             custom double inputs:timeStamp
             prepend double inputs:timeStamp.connect = </World/ros2_graph/isaac_read_system_time.outputs:systemTime>
             token node:type = "isaacsim.ros2.bridge.ROS2PublishJointState"
+            uniform float2 ui:nodegraph:node:pos = (294.96603, -190.8484)
         }
 
         over "articulation_controller"
@@ -796,6 +838,164 @@ def Xform "World" (
         over "ros2_subscribe_joint_state"
         {
             token node:type = "isaacsim.ros2.bridge.ROS2SubscribeJointState"
+        }
+
+        def OmniGraphNode "isaac_create_render_product_01" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom rel inputs:cameraPrim = </World/lite6/link6/rsd455/RSD455/Camera_OmniVision_OV9782_Color> (
+                customData = {
+                    dictionary omni = {
+                        dictionary graph = {
+                            string relType = "target"
+                        }
+                    }
+                }
+            )
+            custom bool inputs:enabled = 1
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </World/ros2_graph/on_playback_tick.outputs:tick>
+            custom uint inputs:height
+            custom rel inputs:renderProductPrim (
+                customData = {
+                    dictionary omni = {
+                        dictionary graph = {
+                            string relType = "target"
+                        }
+                    }
+                }
+            )
+            custom uint inputs:width
+            token node:type = "isaacsim.core.nodes.IsaacCreateRenderProduct"
+            int node:typeVersion = 2
+            custom uint outputs:execOut (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            custom token outputs:renderProductPath
+            uniform token ui:nodegraph:node:expansionState = "open"
+            uniform float2 ui:nodegraph:node:pos = (243.22667, 1017.7425)
+        }
+
+        def OmniGraphNode "ros2_camera_helper_01" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom uint64 inputs:context
+            custom bool inputs:enabled
+            custom bool inputs:enableSemanticLabels
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </World/ros2_graph/isaac_create_render_product_01.outputs:execOut>
+            custom string inputs:frameId
+            custom uint inputs:frameSkipCount
+            custom string inputs:nodeNamespace
+            custom string inputs:qosProfile
+            custom uint64 inputs:queueSize
+            custom token inputs:renderProductPath
+            prepend token inputs:renderProductPath.connect = </World/ros2_graph/isaac_create_render_product_01.outputs:renderProductPath>
+            custom bool inputs:resetSimulationTimeOnStop
+            custom string inputs:semanticLabelsTopicName
+            custom string inputs:srtxCompressionType
+            custom float2 inputs:stereoOffset
+            custom string inputs:topicName = "rgb"
+            custom token inputs:type (
+                allowedTokens = ["rgb", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d", "camera_info", "rgb_h264"]
+            )
+            custom bool inputs:useSystemTime
+            custom token inputs:viewport
+            token node:type = "isaacsim.ros2.bridge.ROS2CameraHelper"
+            int node:typeVersion = 2
+            uniform token ui:nodegraph:node:expansionState = "open"
+            uniform float2 ui:nodegraph:node:pos = (550.42645, 1014.6509)
+        }
+
+        def OmniGraphNode "isaac_create_render_product_02" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom rel inputs:cameraPrim = </World/rsd555/Depth> (
+                customData = {
+                    dictionary omni = {
+                        dictionary graph = {
+                            string relType = "target"
+                        }
+                    }
+                }
+            )
+            custom bool inputs:enabled = 1
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </World/ros2_graph/on_playback_tick.outputs:tick>
+            custom uint inputs:height
+            custom rel inputs:renderProductPrim (
+                customData = {
+                    dictionary omni = {
+                        dictionary graph = {
+                            string relType = "target"
+                        }
+                    }
+                }
+            )
+            custom uint inputs:width
+            token node:type = "isaacsim.core.nodes.IsaacCreateRenderProduct"
+            int node:typeVersion = 2
+            custom uint outputs:execOut (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            custom token outputs:renderProductPath
+            uniform token ui:nodegraph:node:expansionState = "open"
+            uniform float2 ui:nodegraph:node:pos = (238.79707, 1486.0519)
+        }
+
+        def OmniGraphNode "ros2_camera_helper_02" (
+            prepend apiSchemas = ["NodeGraphNodeAPI"]
+        )
+        {
+            custom uint64 inputs:context
+            custom bool inputs:enabled
+            custom bool inputs:enableSemanticLabels
+            custom uint inputs:execIn (
+                customData = {
+                    bool isExecution = 1
+                }
+            )
+            prepend uint inputs:execIn.connect = </World/ros2_graph/isaac_create_render_product_02.outputs:execOut>
+            custom string inputs:frameId
+            custom uint inputs:frameSkipCount
+            custom string inputs:nodeNamespace
+            custom string inputs:qosProfile
+            custom uint64 inputs:queueSize
+            custom token inputs:renderProductPath
+            prepend token inputs:renderProductPath.connect = </World/ros2_graph/isaac_create_render_product_02.outputs:renderProductPath>
+            custom bool inputs:resetSimulationTimeOnStop
+            custom string inputs:semanticLabelsTopicName
+            custom string inputs:srtxCompressionType
+            custom float2 inputs:stereoOffset
+            custom string inputs:topicName = "depth"
+            custom token inputs:type = "depth" (
+                allowedTokens = ["rgb", "depth", "depth_pcl", "instance_segmentation", "semantic_segmentation", "bbox_2d_tight", "bbox_2d_loose", "bbox_3d", "camera_info", "rgb_h264"]
+            )
+            custom bool inputs:useSystemTime
+            custom token inputs:viewport
+            token node:type = "isaacsim.ros2.bridge.ROS2CameraHelper"
+            int node:typeVersion = 2
+            uniform token ui:nodegraph:node:expansionState = "open"
+            uniform float2 ui:nodegraph:node:pos = (559.8004, 1501.7384)
         }
     }
 
@@ -1005,101 +1205,6 @@ def compute(db: og.Database):
         bool physxScene:enableGPUDynamics = 0
     }
 
-    def Xform "screwdriver_old" (
-        delete apiSchemas = ["PhysxMeshMergeCollisionAPI", "PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]
-    )
-    {
-        quatd xformOp:orient = (0.8504410733263356, 0, 0, 0.5260703192535674)
-        double3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0.32285232105474415, -1.5, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-        def Cube "Cube" (
-            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysxRigidBodyAPI", "PhysicsCollisionAPI", "PhysxCollisionAPI", "MaterialBindingAPI"]
-        )
-        {
-            float3[] extent = [(-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)]
-            rel material:binding = </World/Looks/screwdriver_orange> (
-                bindMaterialAs = "strongerThanDescendants"
-            )
-            rel material:binding:physics = </World/screwdriver_old/PhysicsMaterial> (
-                bindMaterialAs = "strongerThanDescendants"
-            )
-            bool physics:collisionEnabled = 1
-            bool physics:kinematicEnabled = 0
-            bool physics:rigidBodyEnabled = 1
-            double size = 1
-            quatd xformOp:orient = (1, 0, 0, 0)
-            double3 xformOp:scale = (0.025, 0.04, 0.023)
-            double3 xformOp:translate = (0, 0, 0.02)
-            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-        }
-
-        def Cube "Cube_01" (
-            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysxRigidBodyAPI", "PhysicsCollisionAPI", "PhysxCollisionAPI", "MaterialBindingAPI"]
-        )
-        {
-            float3[] extent = [(-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)]
-            rel material:binding = </World/Looks/screwdriver_orange> (
-                bindMaterialAs = "strongerThanDescendants"
-            )
-            bool physics:collisionEnabled = 1
-            bool physics:kinematicEnabled = 0
-            bool physics:rigidBodyEnabled = 1
-            double size = 1
-            quatd xformOp:orient = (1, 0, 0, 0)
-            double3 xformOp:scale = (0.017, 0.04, 0.015)
-            double3 xformOp:translate = (0, 0.04, 0.018)
-            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-            def PhysicsFixedJoint "FixedJoint"
-            {
-                rel physics:body0 = </World/screwdriver_old/Cube>
-                rel physics:body1 = </World/screwdriver_old/Cube_01>
-                float physics:breakForce = inf
-                float physics:breakTorque = inf
-                point3f physics:localPos0 = (-1.7763568e-15, 0.6666667, 0)
-                point3f physics:localPos1 = (0, 0, 0)
-                quatf physics:localRot0 = (1, 0, 0, 0)
-                quatf physics:localRot1 = (1, 0, 0, 0)
-            }
-        }
-
-        def Cylinder "Cylinder" (
-            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysxRigidBodyAPI", "PhysicsCollisionAPI", "PhysxCollisionAPI", "MaterialBindingAPI"]
-        )
-        {
-            uniform token axis = "Z"
-            float3[] extent = [(-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)]
-            double height = 1
-            rel material:binding = </World/Looks/screwdriver_gray> (
-                bindMaterialAs = "strongerThanDescendants"
-            )
-            bool physics:collisionEnabled = 1
-            bool physics:kinematicEnabled = 0
-            bool physics:rigidBodyEnabled = 1
-            double radius = 0.5
-            custom bool refinementEnableOverride = 1
-            custom int refinementLevel = 2
-            quatd xformOp:orient = (1, 0, 0, 0)
-            double3 xformOp:scale = (0.002, 0.1, 0.002)
-            double3 xformOp:translate = (0, 0.1, 0.018)
-            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-            def PhysicsFixedJoint "FixedJoint"
-            {
-                rel physics:body0 = </World/screwdriver_old/Cube_01>
-                rel physics:body1 = </World/screwdriver_old/Cylinder>
-                float physics:breakForce = inf
-                float physics:breakTorque = inf
-                point3f physics:localPos0 = (-3.5527137e-15, 1.6, -0.083333336)
-                point3f physics:localPos1 = (0, 0, 0)
-                quatf physics:localRot0 = (1, 0, 0, 0)
-                quatf physics:localRot1 = (1, 0, 0, 0)
-            }
-        }
-    }
-
     def "screwdriver" (
         prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysxRigidBodyAPI"]
         prepend payload = @./screwdriver.usd@
@@ -1253,6 +1358,123 @@ def compute(db: og.Database):
         double3 xformOp:translate = (-0.10000000000000035, 0.2398662452693141, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale", "xformOp:rotateX:unitsResolve", "xformOp:scale:unitsResolve"]
     }
+
+    def Xform "rsd555" (
+        prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Sensors/RealSense/D555/rsd555.usd@
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, -10, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (1, 0.08502, 0.26227914831445964)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+
+        over "Depth" (
+            prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+        )
+        {
+            float exposure:fStop = 5
+            float exposure:responsivity = 1.1026709
+            float exposure:time = 0.02
+            quatd xformOp:orient = (0.5, 0.5, 0.5, 0.5)
+            double3 xformOp:translate = (0, -0.047499991953372955, 1.862645149230957e-9)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        over "Camera_OmniVision_OV9782_Right"
+        {
+            quatd xformOp:orient = (0.5000000000000001, 0.5, 0.49999999999999994, 0.5)
+            double3 xformOp:scale = (1, 0.9999989867210388, 1)
+            double3 xformOp:translate = (0, 0.04749999940395355, -1.4217237936467358e-16)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        over "Camera_OmniVision_OV9782_Color" (
+            prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+        )
+        {
+            float exposure:fStop = 5
+            float exposure:responsivity = 1.1026709
+            float exposure:time = 0.02
+        }
+    }
+
+    def Xform "XT32_SD10" (
+        prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Sensors/HESAI/XT32_SD10/HESAI_XT32_SD10.usd@
+    )
+    {
+        quatd xformOp:orient = (6.123233995736766e-17, 0, 0, 1)
+        double3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (1, 0.08502, 0.045)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        over "PandarXT_32_10hz"
+        {
+            custom string[] _replicator:rendervar:GenericModelOutput:channels = ["NONE"]
+            quatd xformOp:orient = (1, 0, 0, 0)
+            double3 xformOp:translate = (0, 0, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+    }
+
+    def Xform "rsd555_01" (
+        prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Sensors/RealSense/D555/rsd555.usd@
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, -10, 90)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0.3214616101786303, 0.75, 0.2622791483144594)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+
+        over "Depth" (
+            prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+        )
+        {
+            float exposure:fStop = 5
+            float exposure:responsivity = 1.1026709
+            float exposure:time = 0.02
+            quatd xformOp:orient = (0.5, 0.5, 0.5, 0.5)
+            double3 xformOp:translate = (0, -0.047499991953372955, 1.862645149230957e-9)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        over "Camera_OmniVision_OV9782_Right"
+        {
+            quatd xformOp:orient = (0.5000000000000001, 0.5, 0.49999999999999994, 0.5)
+            double3 xformOp:scale = (1, 0.9999989867210388, 1)
+            double3 xformOp:translate = (0, 0.04749999940395355, -1.4217237936467358e-16)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+    }
+
+    def Xform "rsd555_02" (
+        prepend references = @https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/6.0/Isaac/Sensors/RealSense/D555/rsd555.usd@
+    )
+    {
+        float3 xformOp:rotateXYZ = (0, -10, -90)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0.32146161017863023, -0.6, 0.2622791483144594)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+
+        over "Depth" (
+            prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+        )
+        {
+            float exposure:fStop = 5
+            float exposure:responsivity = 1.1026709
+            float exposure:time = 0.02
+            quatd xformOp:orient = (0.5, 0.5, 0.5, 0.5)
+            double3 xformOp:translate = (0, -0.047499991953372955, 1.862645149230957e-9)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        over "Camera_OmniVision_OV9782_Right"
+        {
+            quatd xformOp:orient = (0.5000000000000001, 0.5, 0.49999999999999994, 0.5)
+            double3 xformOp:scale = (1, 0.9999989867210388, 1)
+            double3 xformOp:translate = (0, 0.04749999940395355, -1.4217237936467358e-16)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+    }
 }
 
 def Xform "Environment"
@@ -1393,6 +1615,143 @@ def "Render" (
                 custom bool overrideClipRange = 0
                 uniform int2 resolution = (1280, 720)
             }
+
+            def RenderProduct "camera_sensor_8372101842663" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1", "OmniSensorDepthSensorSingleViewAPI"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </World/rsd555/Depth>
+                token omni:rtx:ambientOcclusion:denoiserMode = "none"
+                token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
+                token omni:rtx:background:source:type = "domeLight"
+                bool omni:rtx:debug:view:pixelDebug:enableFixedTextPos = 1
+                bool omni:rtx:directLighting:sampledLighting:autoEnable = 0
+                token omni:rtx:directLighting:sampledLighting:denoisingTechnique = "None"
+                bool omni:rtx:dlss:frameGeneration = 0
+                float3 omni:rtx:domeLight:rotationAxis = (0, 0, 1)
+                bool omni:rtx:indirectDiffuse:denoiser:enabled = 0
+                token omni:rtx:lightspeed:relax:fireflySuppressionType = "None"
+                bool omni:rtx:lightspeed:relax:history:clamping:enabled = 0
+                bool omni:rtx:material:db:syncLoads = 1
+                token omni:rtx:post:dlss:execMode = "performance"
+                bool omni:rtx:post:matteobject:enabled = 0
+                bool omni:rtx:post:registeredCompositing:invertColorCorrection = 1
+                bool omni:rtx:post:registeredCompositing:invertToneMap = 1
+                bool omni:rtx:pt:adaptiveSampling:filterError = 0
+                uint omni:rtx:pt:adaptiveSampling:fixedSppIterations = 2
+                float omni:rtx:pt:fireflyFilter:maxPerEmissiveUnexposedIntensity = 3199.9995
+                float omni:rtx:pt:fireflyFilter:maxUnexposedIntensityPerSample = 3199.9995
+                float omni:rtx:pt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse = 3199.9995
+                uint omni:rtx:pt:maxSamplesPerLaunch = 2073600
+                uint omni:rtx:pt:mgpu:maxPixelsPerRegionExponent = 12
+                bool omni:rtx:reflections:denoiser:enabled = 0
+                token omni:rtx:rendermode = "RealTimePathTracing"
+                color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
+                bool omni:rtx:rt:demoire = 0
+                float omni:rtx:rt:directLighting:maxRayUnexposedIntensity = 6399.999
+                uint omni:rtx:rt:directLighting:samples = 1
+                bool omni:rtx:rt:ecoMode:enabled
+                uint omni:rtx:rt:ecoMode:maxFramesWithoutChange = 20
+                float omni:rtx:rt:indirectdiffuse:maxRayUnexposedIntensity = 6399.999
+                float omni:rtx:rt:inscattering:maxRTSampleUnexposedIntensity = 204799.97
+                bool omni:rtx:rt:lightcache:spatialCache:dontResolveConflicts = 1
+                bool omni:rtx:rt:reflections:enabled = 0
+                bool omni:rtx:rt:refractions:enabled = 0
+                float omni:rtx:rt:refractions:maxRayUnexposedIntensity = 19199.998
+                int omni:rtx:rt:sss:samples = 1
+                uint omni:rtx:rtpt:maxVolumeBounces = 15
+                float omni:rtx:rtpt:modulatingRoughnessThreshold = 0.08
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (640, 480)
+            }
+
+            def RenderProduct "camera_sensor_8372838581141" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1", "OmniSensorDepthSensorSingleViewAPI"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </World/lite6/link6/rsd455/RSD455/Camera_Pseudo_Depth>
+                token omni:rtx:ambientOcclusion:denoiserMode = "none"
+                token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
+                token omni:rtx:background:source:type = "domeLight"
+                bool omni:rtx:debug:view:pixelDebug:enableFixedTextPos = 1
+                bool omni:rtx:directLighting:sampledLighting:autoEnable = 0
+                token omni:rtx:directLighting:sampledLighting:denoisingTechnique = "None"
+                bool omni:rtx:dlss:frameGeneration = 0
+                float3 omni:rtx:domeLight:rotationAxis = (0, 0, 1)
+                bool omni:rtx:indirectDiffuse:denoiser:enabled = 0
+                token omni:rtx:lightspeed:relax:fireflySuppressionType = "None"
+                bool omni:rtx:lightspeed:relax:history:clamping:enabled = 0
+                bool omni:rtx:material:db:syncLoads = 1
+                token omni:rtx:post:dlss:execMode = "performance"
+                bool omni:rtx:post:matteobject:enabled = 0
+                bool omni:rtx:post:registeredCompositing:invertColorCorrection = 1
+                bool omni:rtx:post:registeredCompositing:invertToneMap = 1
+                bool omni:rtx:pt:adaptiveSampling:filterError = 0
+                uint omni:rtx:pt:adaptiveSampling:fixedSppIterations = 2
+                float omni:rtx:pt:fireflyFilter:maxPerEmissiveUnexposedIntensity = 3199.9995
+                float omni:rtx:pt:fireflyFilter:maxUnexposedIntensityPerSample = 3199.9995
+                float omni:rtx:pt:fireflyFilter:maxUnexposedIntensityPerSampleDiffuse = 3199.9995
+                uint omni:rtx:pt:maxSamplesPerLaunch = 2073600
+                uint omni:rtx:pt:mgpu:maxPixelsPerRegionExponent = 12
+                bool omni:rtx:reflections:denoiser:enabled = 0
+                token omni:rtx:rendermode = "RealTimePathTracing"
+                color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
+                bool omni:rtx:rt:demoire = 0
+                float omni:rtx:rt:directLighting:maxRayUnexposedIntensity = 6399.999
+                uint omni:rtx:rt:directLighting:samples = 1
+                uint omni:rtx:rt:ecoMode:maxFramesWithoutChange = 20
+                float omni:rtx:rt:indirectdiffuse:maxRayUnexposedIntensity = 6399.999
+                float omni:rtx:rt:inscattering:maxRTSampleUnexposedIntensity = 204799.97
+                bool omni:rtx:rt:lightcache:spatialCache:dontResolveConflicts = 1
+                bool omni:rtx:rt:reflections:enabled = 0
+                bool omni:rtx:rt:refractions:enabled = 0
+                float omni:rtx:rt:refractions:maxRayUnexposedIntensity = 19199.998
+                int omni:rtx:rt:sss:samples = 1
+                uint omni:rtx:rtpt:maxVolumeBounces = 15
+                float omni:rtx:rtpt:modulatingRoughnessThreshold = 0.08
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (2048, 1080)
+            }
+
+            def RenderProduct "Replicator_02" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </World/lite6/link6/rsd455/RSD455/Camera_OmniVision_OV9782_Color>
+                bool omni:rtx:material:db:syncLoads = 1
+                bool omni:rtx:rt:ecoMode:enabled
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (1280, 720)
+            }
+
+            def RenderProduct "Replicator_03" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </World/rsd555/Depth>
+                bool omni:rtx:material:db:syncLoads = 1
+                bool omni:rtx:rt:ecoMode:enabled
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (1280, 720)
+            }
         }
     }
 
@@ -1404,6 +1763,10 @@ def "Render" (
         rel products = [
             </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>,
             </Render/OmniverseKit/HydraTextures/Replicator_01>,
+            </Render/OmniverseKit/HydraTextures/camera_sensor_8372101842663>,
+            </Render/OmniverseKit/HydraTextures/camera_sensor_8372838581141>,
+            </Render/OmniverseKit/HydraTextures/Replicator_02>,
+            </Render/OmniverseKit/HydraTextures/Replicator_03>,
         ]
     }
 
@@ -1441,10 +1804,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (1.0900688784607376e-16, 6.812930490379608e-16, -23.72147177228671)
-    float3 xformOp:rotateXYZ = (73.86038, -1.0734372e-14, -174.36183)
+    custom uniform vector3d omni:kit:centerOfInterest = (1.3318402112678354e-16, 8.324001320423971e-16, -28.982764851885637)
+    float3 xformOp:rotateXYZ = (79.60348, -3.1805548e-13, 144.38008)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0.22902279220292393, 0.5795470079171843, 0.3379071344381491)
+    double3 xformOp:translate = (2.296849174413828, 2.499046306761516, 0.8014680012094517)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

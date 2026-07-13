@@ -21,31 +21,26 @@ def hf_transform_to_torch(items_dict):
         
         if key == 'observation.image':
             first_item = items_dict[key][0]['bytes']
-            # print(first_item)
-            # print('------------')
             first_item = Image.open(io.BytesIO(first_item))
 
-           
         if isinstance(first_item, PILImage.Image):
             to_tensor = transforms.ToTensor()
+            tensors = []
             for item in items_dict[key]:
-                
-                item = item['bytes']
-                items_dict[key] = to_tensor(Image.open(io.BytesIO(item)))
-                items_dict[key] = items_dict[key].unsqueeze(0)
-                
+                item_bytes = item['bytes']
+                tensors.append(to_tensor(Image.open(io.BytesIO(item_bytes))))
+            items_dict[key] = torch.stack(tensors)
                 
         elif key == 'observation.state' or key == 'action':
-                import numpy as np
-                for next_line  in items_dict[key]:
-                    next_line = next_line[1:-1].split(',')
-                    next_line = [float(item) for item in next_line]
-                    next_line = np.array(next_line)
-
-                    items_dict[key] = torch.tensor(next_line, dtype=torch.float32)
-                    items_dict[key] = items_dict[key].unsqueeze(0)
+            import numpy as np
+            tensors = []
+            for next_line in items_dict[key]:
+                next_line = next_line[1:-1].split(',')
+                next_line = [float(item) for item in next_line]
+                next_line = np.array(next_line)
+                tensors.append(torch.tensor(next_line, dtype=torch.float32))
+            items_dict[key] = torch.stack(tensors)
         else:
-
             items_dict[key] = torch.tensor(items_dict[key])
             
     return items_dict
@@ -218,6 +213,6 @@ class LeRobotDataset(torch.utils.data.Dataset):
         obj.transform = transform
         obj.delta_timestamps = delta_timestamps
         obj.hf_dataset = hf_dataset
-        obj.episode_data_index = episode_data_index,
+        obj.episode_data_index = episode_data_index
         obj.stats = stats
         return obj
