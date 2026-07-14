@@ -1164,7 +1164,7 @@ def compute(db: og.Database):
             custom double inputs:timeStamp
             prepend double inputs:timeStamp.connect = </World/ros2_position_respawn/isaac_read_system_time.outputs:systemTime>
             custom string inputs:topicName
-            custom vector3d inputs:translation = (0.08, -0.045, 0.13)
+            custom vector3d inputs:translation = (0.08, -0.038, 0.13)
             token node:type = "isaacsim.ros2.bridge.ROS2PublishRawTransformTree"
             int node:typeVersion = 1
             uniform token ui:nodegraph:node:expansionState = "open"
