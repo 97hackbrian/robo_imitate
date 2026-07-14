@@ -26,6 +26,23 @@ def create_image_compression_nodes(topic_names):
         nodes.append(node)
     return nodes
 
+
+def create_depth_compression_nodes(topic_names):
+    nodes = []
+    for topic_name in topic_names:
+        node = Node(
+            package='image_transport',
+            executable='republish',
+            arguments=['raw', 'compressedDepth'],
+            remappings=[
+                ('in', topic_name),
+                ('out/compressedDepth', topic_name + '/compressedDepth'),
+            ],
+            output='screen',
+        )
+        nodes.append(node)
+    return nodes
+
 configurable_parameters = [{'name': 'serial_no', 'default': "'021222071076'", 'description': 'choose device by serial number'},]
 
 def launch_setup(context):
@@ -145,7 +162,8 @@ def launch_setup(context):
         condition=UnlessCondition(use_sim)
     )
 
-    image_compression_nodes = create_image_compression_nodes(['/rgb'])
+    image_compression_nodes = create_image_compression_nodes(['/rgb', '/rgb2'])
+    depth_compression_nodes = create_depth_compression_nodes(['/depth'])
 
     foxglove_bridge = Node(
         package='foxglove_bridge',
@@ -167,7 +185,7 @@ def launch_setup(context):
         realsence_camera,
         gripper_service,
         foxglove_bridge
-    ]+image_compression_nodes
+    ]+image_compression_nodes+depth_compression_nodes
 
 
 def generate_launch_description():

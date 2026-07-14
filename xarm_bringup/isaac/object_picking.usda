@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (2.296849174413828, 2.499046306761516, 0.8014680012094517)
-                double3 target = (-14.305751487985564, -20.67419631684399, -4.42874576230986)
+                double3 position = (0.7397923118940444, 0.3626913397245461, 0.30108158050831435)
+                double3 target = (-22.536571214152552, -10.985111964147476, -6.630618734926008)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -79,7 +79,7 @@ def Xform "World" (
 {
     quatf xformOp:orient = (1, 0, 0, 0)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0, -0.085, 0)
+    double3 xformOp:translate = (0, 0, 0)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
     def Xform "GroundPlane"
@@ -118,7 +118,7 @@ def Xform "World" (
 
     over "lite6"
     {
-        double3 xformOp:translate = (0, 0.08502, 0)
+        double3 xformOp:translate = (0, 0, 0)
 
         over "base_link"
         {
@@ -293,20 +293,6 @@ def Xform "World" (
                 float state:linear:physics:velocity = 0
             }
 
-            def Camera "Camera"
-            {
-                float2 clippingRange = (0.01, 10000000)
-                float focalLength = 18.147562
-                float focusDistance = 400
-                float horizontalAperture = 20
-                bool omni:kit:cameraLock = 0
-                float verticalAperture = 15
-                quatd xformOp:orient = (6.123233995736766e-17, -0.7071067811865476, -0.7071067811865475, -4.329780281177466e-17)
-                double3 xformOp:scale = (1, 1, 1)
-                double3 xformOp:translate = (0.05, 0, 0)
-                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-            }
-
             over "visuals"
             {
                 over "mesh_0" (
@@ -358,6 +344,9 @@ def Xform "World" (
                     delete apiSchemas = ["PhysicsRigidBodyAPI", "PhysxRigidBodyAPI"]
                 )
                 {
+                    bool physics:kinematicEnabled = 0
+                    bool physics:rigidBodyEnabled = 0
+
                     over "Camera_Pseudo_Depth" (
                         prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
                     )
@@ -1175,11 +1164,11 @@ def compute(db: og.Database):
             custom double inputs:timeStamp
             prepend double inputs:timeStamp.connect = </World/ros2_position_respawn/isaac_read_system_time.outputs:systemTime>
             custom string inputs:topicName
-            custom vector3d inputs:translation = (0.08, 0.072, 0.13)
+            custom vector3d inputs:translation = (0.08, -0.045, 0.13)
             token node:type = "isaacsim.ros2.bridge.ROS2PublishRawTransformTree"
             int node:typeVersion = 1
             uniform token ui:nodegraph:node:expansionState = "open"
-            uniform float2 ui:nodegraph:node:pos = (253.10826, 541.9804)
+            uniform float2 ui:nodegraph:node:pos = (188.52959, 720.9172)
         }
 
         def OmniGraphNode "isaac_read_system_time" (
@@ -1216,7 +1205,7 @@ def compute(db: og.Database):
         float3 xformOp:rotateXYZ = (-90, 0, 180)
         float3 xformOp:scale = (2.5, 2.5, 2.5)
         double3 xformOp:scale:unitsResolve = (0.01, 0.01, 0.01)
-        double3 xformOp:translate = (0.3000000000000004, 0.1, 0.013261435731272551)
+        double3 xformOp:translate = (0.3000000000000004, 0, 0.013261435731272551)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale", "xformOp:rotateX:unitsResolve", "xformOp:scale:unitsResolve"]
 
         over "Lamp" (
@@ -1281,7 +1270,7 @@ def compute(db: og.Database):
         custom int refinementLevel = 2
         quatd xformOp:orient = (1, 0, 0, 0)
         double3 xformOp:scale = (0.9, 0.9, 0.036)
-        double3 xformOp:translate = (0.3, 0.1, -0.020010292340027838)
+        double3 xformOp:translate = (0.3, 0, -0.020010292340027838)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
     }
 
@@ -1752,6 +1741,21 @@ def "Render" (
                 custom bool overrideClipRange = 0
                 uniform int2 resolution = (1280, 720)
             }
+
+            def RenderProduct "Replicator_04" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </World/rsd555/Camera_OmniVision_OV9782_Color>
+                bool omni:rtx:material:db:syncLoads = 1
+                bool omni:rtx:rt:ecoMode:enabled
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (1280, 720)
+            }
         }
     }
 
@@ -1767,6 +1771,7 @@ def "Render" (
             </Render/OmniverseKit/HydraTextures/camera_sensor_8372838581141>,
             </Render/OmniverseKit/HydraTextures/Replicator_02>,
             </Render/OmniverseKit/HydraTextures/Replicator_03>,
+            </Render/OmniverseKit/HydraTextures/Replicator_04>,
         ]
     }
 
@@ -1804,10 +1809,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (1.3318402112678354e-16, 8.324001320423971e-16, -28.982764851885637)
-    float3 xformOp:rotateXYZ = (79.60348, -3.1805548e-13, 144.38008)
+    custom uniform vector3d omni:kit:centerOfInterest = (1.2318533274130002e-16, 7.699083296331246e-16, -26.806905977434855)
+    float3 xformOp:rotateXYZ = (75.014244, -3.6258323e-13, 115.99038)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (2.296849174413828, 2.499046306761516, 0.8014680012094517)
+    double3 xformOp:translate = (0.7397923118940444, 0.3626913397245461, 0.30108158050831435)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

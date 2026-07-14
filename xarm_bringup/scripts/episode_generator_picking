@@ -167,7 +167,7 @@ class ControlObjectPicking(Node):
 
     def image_callback(self, msg):
         try:
-            cv2_img = self.cv_bridge.imgmsg_to_cv2(msg, "bgr8")
+            cv2_img = self.cv_bridge.imgmsg_to_cv2(msg, "rgb8")
             cv2_img = cv2.resize(cv2_img, (96, 96))
             self.image = cv2_img
         except CvBridgeError as e:
@@ -241,7 +241,7 @@ class ControlObjectPicking(Node):
             f"[{x_pos}, {y_pos}, {z_pos}, {euler_angles_o[0]}, {euler_angles_o[1]}, {euler_angles_o[2]}]\n")
 
         image_name = self.images_folder + '/' + str(self.images_counter) + '.jpg'
-        cv2.imwrite(image_name, img)
+        cv2.imwrite(image_name, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
         self.observation_file.write(observation)
 
         self.images_counter += 1
@@ -289,13 +289,14 @@ class ControlObjectPicking(Node):
 
         target_transform = base_gripper @ gripper_target
 
-        # Record initial orientation to keep the gripper vertical relative to camera/table
-        if self.initial_orientation is None:
-            self.initial_orientation = base_gripper[:3, :3].copy()
-
-        # Overwrite orientation to stay vertical, ignoring the screwdriver's horizontal rotation
+        # Overwrite orientation to be PERFECTLY vertical (gripper pointing straight down)
+        # Assuming link_base Z is up, we point gripper Z down (pitch/roll adjustment)
+        import transforms3d as t3d
         if self.initial_orientation is not None:
-            target_transform[:3, :3] = self.initial_orientation
+            euler = t3d.euler.mat2euler(self.initial_orientation, axes='sxyz')
+            # For lite6, to point down, pitch should be around pi (3.14159)
+            perfect_vertical_matrix = t3d.euler.euler2mat(3.14159265, 0.0, euler[2], axes='sxyz')
+            target_transform[:3, :3] = perfect_vertical_matrix
 
         previous_pose = rnp.numpify(self.previous_pose.pose)
         current_pose = rnp.numpify(self.current_pose.pose)
@@ -324,7 +325,8 @@ class ControlObjectPicking(Node):
                                   'joint_trajectory_controller')
                 self.is_trajectory_controler_active = False
                 self.get_logger().info('Start...')
-
+                self.initial_orientation = base_gripper[:3, :3].copy()
+                print(f"INITIAL ORIENTATION CAPTURED AFTER SETTLE:\n{self.initial_orientation}")
                 self.state = EnvStates.MOVE
 
                 if self.new_episode:
@@ -370,7 +372,7 @@ class ControlObjectPicking(Node):
 
         elif self.state == EnvStates.GO_CLOSE:
             if time.time() - self.start_time > 4:
-                if round(gripper_target_tf.transform.translation.z, 4) <= -0.0255:
+                if round(gripper_target_tf.transform.translation.z, 4) <= -0.02:
                     self.state = EnvStates.CLOSE_GRIPPER
 
                 self.get_logger().info(
@@ -469,7 +471,20 @@ class ControlObjectPicking(Node):
         self.get_logger().info(
             f'Respawn screwdriver -> pos=({msg.linear.x:.3f}, {msg.linear.y:.3f})')
 
-
+    def finalize_episode(self):
+        """Called upon KeyboardInterrupt to save the current episode data cleanly."""
+        if len(self.observations) > 0:
+            actions = self.get_action_from_observations(self.observations)
+            if hasattr(self, 'action_filename') and self.action_filename:
+                self.action_filename.writelines(actions)
+                print(f"Saved {len(actions)} actions for the final episode before exit.")
+            
+        if hasattr(self, 'observation_file') and self.observation_file:
+            self.observation_file.close()
+            self.observation_file = None
+        if hasattr(self, 'action_filename') and self.action_filename:
+            self.action_filename.close()
+            self.action_filename = None
 def main(args=None):
     # Parse data_dir argument from argv
     parser = argparse.ArgumentParser()
@@ -478,9 +493,15 @@ def main(args=None):
 
     rclpy.init(args=remaining_args)
     test = ControlObjectPicking(data_dir=parsed_args.data_dir)
-    rclpy.spin(test)
-    test.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(test)
+    except KeyboardInterrupt:
+        print('Ctrl+C detected, saving current episode and shutting down...')
+        test.finalize_episode()
+    finally:
+        test.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
