@@ -80,10 +80,12 @@ def is_identity_transformation(matrix):
 
 
 class ControlObjectPicking(Node):
-    def __init__(self, data_dir='DATA'):
+    def __init__(self, data_dir='DATA', max_episodes=0):
         super().__init__('control_object_picking_subscriber')
         self.DATA_DIR = data_dir
-        self.get_logger().info(f"Saving teleoperation data to: {self.DATA_DIR}")
+        self.max_episodes = max_episodes
+        self.current_episode_count = 0
+        self.get_logger().info(f"Saving teleoperation data to: {self.DATA_DIR} (Max Episodes: {self.max_episodes if self.max_episodes > 0 else 'Infinite'})")
 
         # Image and Pose Subscribers
         self.image_subscriber = self.create_subscription(
@@ -108,7 +110,7 @@ class ControlObjectPicking(Node):
         self.observations = []
 
         # Target Pose publishers and clients
-        self.timer = self.create_timer(0.1, self.publish_pose)
+        self.timer = self.create_timer(0.05, self.publish_pose)
 
         self.publisher_speed_limiter = self.create_publisher(
             PoseStamped, '/target_frame_raw', 1)
@@ -341,32 +343,10 @@ class ControlObjectPicking(Node):
         elif self.state == EnvStates.MOVE:
             self.target_pose.pose = pose
             if are_transforms_close(gripper_target, check_angular=False):
-                # Save final frame
-                if not self.skip_saving:
-                    if self.save_current_frame():
-                        self.observations.append(deepcopy(self.current_pose))
-                self.skip_saving = True
-
-                if self.end_episode_cnt > 10:
+                if self.end_episode_cnt > 20:
                     self.state = EnvStates.GO_CLOSE
                     self.target_pose.pose.position.z = 0.09
                     self.start_time = time.time()
-
-                    # End episode and save actions
-                    if len(self.observations) > 0:
-                        actions = self.get_action_from_observations(self.observations)
-                        self.action_filename.writelines(actions)
-                        self.get_logger().info(f"Saved {len(actions)} actions for this episode.")
-                        
-                        # Close files
-                        if self.observation_file:
-                            self.observation_file.close()
-                            self.observation_file = None
-                        if self.action_filename:
-                            self.action_filename.close()
-                            self.action_filename = None
-                    self.observations = []
-                    self.images_counter = 0
 
                 self.end_episode_cnt += 1
 
@@ -379,9 +359,26 @@ class ControlObjectPicking(Node):
                     f'{round(gripper_target_tf.transform.translation.z, 4)}')
 
         elif self.state == EnvStates.CLOSE_GRIPPER:
-
-            self.skip_saving = True
             if not self.is_object_picked:
+                # Detener guardado antes de cerrar la pinza
+                self.skip_saving = True
+                
+                # End episode and save actions
+                if len(self.observations) > 0:
+                    actions = self.get_action_from_observations(self.observations)
+                    self.action_filename.writelines(actions)
+                    self.get_logger().info(f"Saved {len(actions)} actions for this episode.")
+                    
+                    # Close files
+                    if self.observation_file:
+                        self.observation_file.close()
+                        self.observation_file = None
+                    if self.action_filename:
+                        self.action_filename.close()
+                        self.action_filename = None
+                self.observations = []
+                self.images_counter = 0
+
                 self.state = EnvStates.UP
                 self.gripper_status = GripperStatus.CLOSE
 
@@ -435,6 +432,12 @@ class ControlObjectPicking(Node):
                 self.get_logger().info(f'Arm inited...')
 
             if time.time() - self.start_time > 10.0 and self.next_episode_trigger:
+                self.current_episode_count += 1
+                if self.max_episodes > 0 and self.current_episode_count >= self.max_episodes:
+                    self.get_logger().info(f'Reached max episodes ({self.max_episodes}). Shutting down...')
+                    import sys
+                    sys.exit(0)
+
                 self.state = EnvStates.IDLE
                 self.start_time = time.time()
                 self.next_episode_trigger = False
@@ -489,10 +492,11 @@ def main(args=None):
     # Parse data_dir argument from argv
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='DATA', help='Name of data directory.')
+    parser.add_argument('--max_episodes', type=int, default=0, help='Maximum number of episodes to record (0 for infinite).')
     parsed_args, remaining_args = parser.parse_known_args()
 
     rclpy.init(args=remaining_args)
-    test = ControlObjectPicking(data_dir=parsed_args.data_dir)
+    test = ControlObjectPicking(data_dir=parsed_args.data_dir, max_episodes=parsed_args.max_episodes)
     try:
         rclpy.spin(test)
     except KeyboardInterrupt:
