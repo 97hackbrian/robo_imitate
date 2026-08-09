@@ -122,7 +122,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
     @property
     def fps(self) -> int:
         """Frames per second used during data collection."""
-        return 10
+        return 20
 
     @property
     def video(self) -> bool:

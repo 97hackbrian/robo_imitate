@@ -28,6 +28,7 @@ def main(root, epoch, batch_size):
 
     device = torch.device("cuda")
     log_freq = 20
+    checkpoint_freq = 2000
 
     delta_timestamps = {
         "observation.image": [-0.05, 0.0],
@@ -92,8 +93,22 @@ def main(root, epoch, batch_size):
             optimizer.zero_grad(set_to_none=True)
 
             if step % log_freq == 0:
-                vram_mb = torch.cuda.memory_allocated() / 1e6
-                print(f"Epoch {epoch_idx}/{epochs} | Step {step}/{total_steps} | Loss: {loss.item():.4f} | LR: {scheduler.get_last_lr()[0]:.2e} | VRAM: {vram_mb:.0f}MB")
+                # Peak since the last log, not the instantaneous reading — memory_allocated()
+                # taken here (after backward()+step()) misses the transient forward/backward
+                # activation memory, which is where OOM actually happens and where batch_size
+                # actually shows up. It looked nearly flat across batch_size 16->64 because of
+                # this; max_memory_allocated() (reset each interval) reports the real peak.
+                vram_mb = torch.cuda.max_memory_allocated() / 1e6
+                print(f"Epoch {epoch_idx}/{epochs} | Step {step}/{total_steps} | Loss: {loss.item():.4f} | LR: {scheduler.get_last_lr()[0]:.2e} | VRAM(peak): {vram_mb:.0f}MB")
+                torch.cuda.reset_peak_memory_stats()
+
+            # Periodic checkpoint so a crash (e.g. a later OOM) mid-run doesn't lose
+            # everything — overwrites the same output dir, same as the final save.
+            if step > 0 and step % checkpoint_freq == 0:
+                orig_policy = policy._orig_mod if hasattr(policy, "_orig_mod") else policy
+                orig_policy.save_pretrained(output_directory)
+                print(f"[checkpoint] saved at step {step}")
+
             step += 1
             train_losses.append(loss.item())
 
@@ -121,7 +136,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train diffusion policy')
     parser.add_argument('--path', type=str, help='Data path')
     parser.add_argument('--epoch', type=int, default=1000, help='Number of epochs')
-    parser.add_argument('--batch_size', type=int, default=512, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=16, help='Batch size (n_obs_steps=2 doubles the effective '
+                         'image batch through the ResNet encoder; 224x224 crops OOM well before batch_size=512 on an '
+                         '8GB GPU — start low and raise it while watching the printed VRAM figure)')
     parsed_args = parser.parse_args()
 
     main(parsed_args.path, parsed_args.epoch, parsed_args.batch_size)

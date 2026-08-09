@@ -13,6 +13,12 @@ class Imitation():
         self.pretrained_policy_path = Path("imitation/outputs/train")
 
         self.policy = DiffusionPolicy.from_pretrained(self.pretrained_policy_path)
+        # Override whatever num_inference_steps the checkpoint was saved with —
+        # DDIM samples fine with far fewer steps than num_train_timesteps (50),
+        # and the full step count was blowing the 20Hz control budget by >10x
+        # (measured: 600-675ms per replan vs. a 50ms period). Safe to override
+        # post-load: it's a plain sampling-loop counter, not a trained weight.
+        self.policy.diffusion.num_inference_steps = 10
         print(self.policy)
         self.policy.eval()
         self.policy.to(self.device)

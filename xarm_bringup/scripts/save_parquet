@@ -152,7 +152,7 @@ def save_data_frame(path):
 
             index += 1
             frame_index += 1
-            timestamp += 0.1
+            timestamp += 0.05  # matches episode_generator_picking's 20 Hz (0.05s) timer
 
             image_index += 1
             if line >= (file_length - 10):

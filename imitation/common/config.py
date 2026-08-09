@@ -128,7 +128,12 @@ class DiffusionConfig:
     clip_sample_range: float = 1.0
 
     # Inference
-    num_inference_steps: int | None = None
+    # DDIM supports far fewer sampling steps than num_train_timesteps without much
+    # quality loss; leaving this at None (-> 50 steps) blew the 20Hz control budget
+    # by >10x in practice (measured 600-675ms/replan). Future checkpoints bake this
+    # in directly; imitation/common/inference.py also overrides it post-load for
+    # already-trained checkpoints.
+    num_inference_steps: int | None = 10
 
     # Loss computation
     do_mask_loss_for_padding: bool = False
