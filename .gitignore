@@ -5,5 +5,5 @@ imitation/outputs/
 __pycache__/
 *.jpg
 *.png
-DATA/actions/*
-DATA/observations/*
+DATA*/
+imitation/data*

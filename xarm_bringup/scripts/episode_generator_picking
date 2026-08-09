@@ -35,8 +35,9 @@ class EnvStates(Enum):
     RESET = 3
     UP = 4
     DOWN = 5
-    MOVE = 6
-    GO_CLOSE = 7
+    ALIGN = 6
+    DESCEND = 7
+    GO_CLOSE = 8
 
 
 class GripperStatus(Enum):
@@ -167,10 +168,18 @@ class ControlObjectPicking(Node):
         self.relative_move = PoseStamped()
         self.initial_orientation = None
 
+        # Minimum height (m) above pick_target to hold during ALIGN. The actual
+        # hover z is anchored to wherever the gripper is when ALIGN starts (see
+        # align_hover_z below) so the controller is never asked to descend below
+        # its current height until DESCEND begins.
+        self.HOVER_Z_OFFSET = 0.08
+        self.ALIGN_XY_TOL = 0.03
+        self.align_hover_z = None
+
     def image_callback(self, msg):
         try:
             cv2_img = self.cv_bridge.imgmsg_to_cv2(msg, "rgb8")
-            cv2_img = cv2.resize(cv2_img, (96, 96))
+            cv2_img = cv2.resize(cv2_img, (256, 256))
             self.image = cv2_img
         except CvBridgeError as e:
             self.get_logger().error(f"CvBridge Error: {e}")
@@ -329,7 +338,14 @@ class ControlObjectPicking(Node):
                 self.get_logger().info('Start...')
                 self.initial_orientation = base_gripper[:3, :3].copy()
                 print(f"INITIAL ORIENTATION CAPTURED AFTER SETTLE:\n{self.initial_orientation}")
-                self.state = EnvStates.MOVE
+                self.state = EnvStates.ALIGN
+                # Anchor the hover height to wherever the gripper actually is right
+                # now, never below pick_target + HOVER_Z_OFFSET. This guarantees the
+                # controller is never commanded a lower z than its current pose during
+                # ALIGN, so the straight-line Cartesian interpolation cannot descend
+                # while it's still correcting x/y.
+                self.align_hover_z = max(
+                    base_gripper[2, 3], target_transform[2, 3] + self.HOVER_Z_OFFSET)
 
                 if self.new_episode:
                     self.new_episode = False
@@ -340,15 +356,41 @@ class ControlObjectPicking(Node):
                     self.images_counter = 0
                     self.observations = []
 
-        elif self.state == EnvStates.MOVE:
+        elif self.state == EnvStates.ALIGN:
+            # Chase pick_target's x/y while holding z at the anchored hover height,
+            # so the demonstrated approach is centered over the target BEFORE
+            # descent starts. z never asks the controller to go lower than where
+            # it already is during this phase.
+            hover_pose = deepcopy(pose)
+            hover_pose.position.z = self.align_hover_z
+            self.target_pose.pose = hover_pose
+
+            xy_error = gripper_target[:2, 3]
+            if np.all(np.abs(xy_error) < self.ALIGN_XY_TOL):
+                if self.end_episode_cnt > 20:
+                    self.state = EnvStates.DESCEND
+                    self.end_episode_cnt = 0
+                else:
+                    self.end_episode_cnt += 1
+            else:
+                self.end_episode_cnt = 0
+
+        elif self.state == EnvStates.DESCEND:
+            # Already aligned laterally; track the full pose down onto the target,
+            # still correcting x/y if the object drifts during descent.
             self.target_pose.pose = pose
             if are_transforms_close(gripper_target, check_angular=False):
                 if self.end_episode_cnt > 20:
                     self.state = EnvStates.GO_CLOSE
                     self.target_pose.pose.position.z = 0.09
                     self.start_time = time.time()
+                    # Stop recording before the frozen-xy grip-close settle dwell —
+                    # that phase isn't useful "how to descend" teaching signal.
+                    self.skip_saving = True
 
                 self.end_episode_cnt += 1
+            else:
+                self.end_episode_cnt = 0
 
         elif self.state == EnvStates.GO_CLOSE:
             if time.time() - self.start_time > 4:

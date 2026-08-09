@@ -162,8 +162,12 @@ def launch_setup(context):
         condition=UnlessCondition(use_sim)
     )
 
-    image_compression_nodes = create_image_compression_nodes(['/rgb', '/rgb2'])
-    depth_compression_nodes = create_depth_compression_nodes(['/depth'])
+    # Only /rgb (wrist-mounted D455, see object_picking.usda ros2_camera_helper_01)
+    # feeds the data-collection/inference pipeline. /rgb2 and /depth come from the
+    # fixed external rsd555 camera, which no script subscribes to — republishing
+    # their compression is pure overhead.
+    image_compression_nodes = create_image_compression_nodes(['/rgb'])
+    depth_compression_nodes = []
 
     foxglove_bridge = Node(
         package='foxglove_bridge',

@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 import math
 import numpy as np
+from collections import deque
 
 
 def call_ros2_service(activate_controllers, deactivate_controllers):
@@ -179,6 +180,17 @@ class PickScrewdriver(Node):
         self.plotting_observations = []
         self.plotting_actions = []
 
+        # Require the observed x/y position to be stationary for a short window
+        # before honoring the z<0.09 close trigger, so the policy has actually
+        # stopped correcting laterally before the gripper commits to closing.
+        self.recent_xy_positions = deque(maxlen=6)
+        self.xy_settle_tolerance = 0.015
+
+        # Measures whether imitation.step() keeps up with the control-loop period,
+        # so a real-time compute bottleneck can be confirmed/ruled out with data
+        # instead of guessed at.
+        self.inference_latencies = []
+
         # Metrics setup
         now_str = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         self.metrics_folder = f"imitation/outputs/results/{now_str}"
@@ -216,7 +228,7 @@ class PickScrewdriver(Node):
 
     def image_callback(self, msg):
         cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
-        cv_image = cv2.resize(cv_image, (96, 96))
+        cv_image = cv2.resize(cv_image, (256, 256))
         self.image = cv_image
           
     def publish_pose(self):
@@ -251,8 +263,17 @@ class PickScrewdriver(Node):
                 self.timer = time.time()
 
         elif self.state == OperationState.INFERENCE:
-            
+
+            _infer_start = time.time()
             self.action = self.imitation.step(self.image, self.observation_pose)
+            infer_latency = time.time() - _infer_start
+            self.inference_latencies.append(infer_latency)
+            if infer_latency > self.timer_freq:
+                self.get_logger().warn(
+                    f'imitation.step() took {infer_latency*1000:.1f} ms, over the '
+                    f'{self.timer_freq*1000:.0f} ms ({1.0/self.timer_freq:.0f} Hz) control '
+                    f'period — the arm may be executing stale actions, including during descent.')
+
             if self.action is None:
                 return
             
@@ -287,7 +308,18 @@ class PickScrewdriver(Node):
             self.start_pose.pose = pose
             self.current_pose.pose = pose
 
-            if self.observation_current_pose.pose.position.z < 0.09:
+            self.recent_xy_positions.append((
+                self.observation_current_pose.pose.position.x,
+                self.observation_current_pose.pose.position.y,
+            ))
+            xy_settled = False
+            if len(self.recent_xy_positions) == self.recent_xy_positions.maxlen:
+                xs = [p[0] for p in self.recent_xy_positions]
+                ys = [p[1] for p in self.recent_xy_positions]
+                xy_settled = (max(xs) - min(xs) < self.xy_settle_tolerance) and \
+                             (max(ys) - min(ys) < self.xy_settle_tolerance)
+
+            if self.observation_current_pose.pose.position.z < 0.09 and xy_settled:
                 self.final_gripper_x = self.observation_current_pose.pose.position.x
                 self.final_gripper_y = self.observation_current_pose.pose.position.y
                 self.state = OperationState.OPEN_GRIPPER
@@ -369,7 +401,19 @@ class PickScrewdriver(Node):
             deltas = np.diff(actions, axis=0)
             smoothness = float(np.var(deltas))
 
-        # 3. Create DataFrame
+        # 3. Inference latency vs. control-loop budget (real-time bottleneck check)
+        latencies = np.array(self.inference_latencies)
+        mean_latency_ms = float(latencies.mean() * 1000) if len(latencies) else -1.0
+        max_latency_ms = float(latencies.max() * 1000) if len(latencies) else -1.0
+        budget_ms = self.timer_freq * 1000
+        over_budget_pct = float((latencies > self.timer_freq).mean() * 100) if len(latencies) else -1.0
+        if len(latencies):
+            verdict = "BOTTLENECK" if over_budget_pct > 5 else "ok"
+            self.get_logger().info(
+                f'Inference latency: mean={mean_latency_ms:.1f}ms max={max_latency_ms:.1f}ms '
+                f'budget={budget_ms:.0f}ms ({over_budget_pct:.1f}% of steps over budget) -> {verdict}')
+
+        # 4. Create DataFrame
         df = pd.DataFrame([{
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "target_spawn_x": self.target_spawn_x,
@@ -378,7 +422,11 @@ class PickScrewdriver(Node):
             "final_gripper_y": self.final_gripper_y,
             "target_reaching_error": error,
             "steps_to_converge": self.step,
-            "trajectory_variance": smoothness
+            "trajectory_variance": smoothness,
+            "inference_latency_mean_ms": mean_latency_ms,
+            "inference_latency_max_ms": max_latency_ms,
+            "inference_latency_budget_ms": budget_ms,
+            "inference_steps_over_budget_pct": over_budget_pct,
         }])
 
         # Save to local run folder
