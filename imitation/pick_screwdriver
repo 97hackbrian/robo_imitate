@@ -108,7 +108,7 @@ class PickScrewdriver(Node):
         self.action = None
 
         # 60 steps for sim, 90 for real env
-        self.max_episode_steps = 2400 if sim else 2500
+        self.max_episode_steps = 3800 if sim else 3900
 
         self.sim = sim
 
