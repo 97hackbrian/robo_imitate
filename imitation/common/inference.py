@@ -18,7 +18,7 @@ class Imitation():
         # and the full step count was blowing the 20Hz control budget by >10x
         # (measured: 600-675ms per replan vs. a 50ms period). Safe to override
         # post-load: it's a plain sampling-loop counter, not a trained weight.
-        self.policy.diffusion.num_inference_steps = 10
+        self.policy.diffusion.num_inference_steps = 12
         print(self.policy)
         self.policy.eval()
         self.policy.to(self.device)

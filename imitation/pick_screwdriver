@@ -108,7 +108,7 @@ class PickScrewdriver(Node):
         self.action = None
 
         # 60 steps for sim, 90 for real env
-        self.max_episode_steps = 3100 if sim else 3200
+        self.max_episode_steps = 1500 if sim else 1600
 
         self.sim = sim
 
@@ -283,7 +283,7 @@ class PickScrewdriver(Node):
             self.current_pose_relativ.header.frame_id = 'gripper_link_base'
             
             # Multiplicador de velocidad para compensar los deltas pequeños de 20Hz
-            speed_multiplier = 50.0
+            speed_multiplier = 40.0
             
             self.current_pose_relativ.pose.position.x = float(self.action[0]) * speed_multiplier
             self.current_pose_relativ.pose.position.y = float(self.action[1]) * speed_multiplier

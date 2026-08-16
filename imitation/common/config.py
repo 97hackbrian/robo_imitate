@@ -80,7 +80,7 @@ class DiffusionConfig:
     # n_action_steps < horizon - n_obs_steps + 1
     n_obs_steps: int = 2
     horizon: int = 16
-    n_action_steps: int = 14
+    n_action_steps: int = 4
 
     input_shapes: dict[str, list[int]] = field(
         default_factory=lambda: {
