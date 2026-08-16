@@ -281,11 +281,17 @@ class PickScrewdriver(Node):
 
             self.current_pose_relativ.header.stamp = self.get_clock().now().to_msg()
             self.current_pose_relativ.header.frame_id = 'gripper_link_base'
-            self.current_pose_relativ.pose.position.x = float(self.action[0])
-            self.current_pose_relativ.pose.position.y = float(self.action[1])
-            self.current_pose_relativ.pose.position.z = float(self.action[2])
+            
+            # Multiplicador de velocidad para compensar los deltas pequeños de 20Hz
+            speed_multiplier = 50.0
+            
+            self.current_pose_relativ.pose.position.x = float(self.action[0]) * speed_multiplier
+            self.current_pose_relativ.pose.position.y = float(self.action[1]) * speed_multiplier
+            self.current_pose_relativ.pose.position.z = float(self.action[2]) * speed_multiplier
 
-            quat = t3d.euler.euler2quat(self.action[3], self.action[4], self.action[5])
+            quat = t3d.euler.euler2quat(self.action[3] * speed_multiplier, 
+                                        self.action[4] * speed_multiplier, 
+                                        self.action[5] * speed_multiplier)
 
             self.current_pose_relativ.pose.orientation.x = float(quat[1])
             self.current_pose_relativ.pose.orientation.y = float(quat[2])
