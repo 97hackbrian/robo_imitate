@@ -355,9 +355,9 @@ class PickScrewdriver(Node):
                 self.timer = time.time()
 
         elif self.state == OperationState.GO_CLOSE:
-                self.observation_current_pose.pose.position.z = 0.09
+                self.observation_current_pose.pose.position.z = 0.085
                 self.publisher_speed_limiter.publish(self.observation_current_pose)
-                if time.time() - self.timer > 4.5:
+                if time.time() - self.timer > 5.0:
                     self.state = OperationState.CLOSE_GRIPPER
                     self.timer  =time.time()
         
