@@ -382,7 +382,7 @@ class PickScrewdriver(Node):
 
         elif self.state == OperationState.END:
 
-            if time.time() - self.timer > 2.5:
+            if time.time() - self.timer > 3.0:
                 if not self.sim:
                     # shutdown gripper
                     msg = Int32()
