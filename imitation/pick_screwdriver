@@ -325,7 +325,7 @@ class PickScrewdriver(Node):
                 xy_settled = (max(xs) - min(xs) < self.xy_settle_tolerance) and \
                              (max(ys) - min(ys) < self.xy_settle_tolerance)
 
-            if self.observation_current_pose.pose.position.z < 0.09 and xy_settled:
+            if self.observation_current_pose.pose.position.z < 0.12 and xy_settled:
                 self.final_gripper_x = self.observation_current_pose.pose.position.x
                 self.final_gripper_y = self.observation_current_pose.pose.position.y
                 self.state = OperationState.OPEN_GRIPPER
