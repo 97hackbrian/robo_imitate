@@ -31,8 +31,32 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
 import math
+import math
 import numpy as np
 from collections import deque
+
+# ---------------------------------------------------------
+# --- CONFIGURATION CONSTANTS ---
+# ---------------------------------------------------------
+SPEED_MULTIPLIER = 40.0         # Scales the model's action deltas (needed for 20Hz)
+TRIGGER_Z = 0.135               # Z-height that triggers the descent sequence (m)
+FINAL_GRASP_Z = 0.088           # Final Z-height for the gripper to close around object (m)
+TIMER_FREQ = 0.05               # Control loop timer (0.05 = 20Hz)
+MAX_EPISODE_STEPS_SIM = 1500    # Timeout steps for simulation
+MAX_EPISODE_STEPS_REAL = 1600   # Timeout steps for real robot
+DASHBOARD_EVERY_N = 10          # Update dashboard every N control ticks (10 = ~2Hz)
+XY_SETTLE_TOLERANCE = 0.019     # Gripper must move less than this (m) in XY to be "settled"
+XY_SETTLE_FRAMES = 10           # Number of frames (ticks) the gripper must remain settled
+SUCCESS_ZONE_RADIUS = 0.018     # Radius (m) of the success zone circle around the target
+
+# Randomization boundaries for the object spawn
+SPAWN_X_MIN, SPAWN_X_MAX = 0.22, 0.40
+SPAWN_Y_MIN, SPAWN_Y_MAX = -0.12, 0.18
+
+# Fixed Plot limits covering the whole area + padding
+PLOT_X_LIMS = [0.18, 0.44]
+PLOT_Y_LIMS = [-0.18, 0.22]
+# ---------------------------------------------------------
 
 
 def call_ros2_service(activate_controllers, deactivate_controllers):
@@ -86,7 +110,7 @@ class PickScrewdriver(Node):
             1)
         self.bridge = CvBridge()
         
-        self.timer_freq = 0.05
+        self.timer_freq = TIMER_FREQ
         self.timer = self.create_timer(self.timer_freq, self.publish_pose)
 
         self.publisher_speed_limiter = self.create_publisher(
@@ -111,8 +135,8 @@ class PickScrewdriver(Node):
         self.image  = None
         self.action = None
 
-        # 60 steps for sim, 90 for real env
-        self.max_episode_steps = 1500 if sim else 1600
+        # Episode step limits
+        self.max_episode_steps = MAX_EPISODE_STEPS_SIM if sim else MAX_EPISODE_STEPS_REAL
 
         self.sim = sim
 
@@ -128,8 +152,8 @@ class PickScrewdriver(Node):
             twist_msg = Twist()
             
             if self.random_spawn:
-                self.target_spawn_x = random.uniform(0.22, 0.40)
-                self.target_spawn_y = random.uniform(-0.12, 0.18)
+                self.target_spawn_x = random.uniform(SPAWN_X_MIN, SPAWN_X_MAX)
+                self.target_spawn_y = random.uniform(SPAWN_Y_MIN, SPAWN_Y_MAX)
             else:
                 self.target_spawn_x = 0.35
                 self.target_spawn_y = 0.10
@@ -184,11 +208,9 @@ class PickScrewdriver(Node):
         self.plotting_observations = []
         self.plotting_actions = []
 
-        # Require the observed x/y position to be stationary for a short window
-        # before honoring the z<0.09 close trigger, so the policy has actually
-        # stopped correcting laterally before the gripper commits to closing.
-        self.recent_xy_positions = deque(maxlen=6)
-        self.xy_settle_tolerance = 0.015
+        # Wait for the model to "settle" in X and Y before dropping down
+        self.recent_xy_positions = deque(maxlen=XY_SETTLE_FRAMES)
+        self.xy_settle_tolerance = XY_SETTLE_TOLERANCE
 
         # Measures whether imitation.step() keeps up with the control-loop period,
         # so a real-time compute bottleneck can be confirmed/ruled out with data
@@ -205,13 +227,13 @@ class PickScrewdriver(Node):
         self.final_gripper_y = None
 
         # Trigger height for the grasp sequence
-        self.trigger_z = 0.135
+        self.trigger_z = TRIGGER_Z
 
         # Real-time dashboard publisher (~2 Hz via throttle counter)
         self.dashboard_pub = self.create_publisher(
             CompressedImage, '/inference_dashboard/compressed', 1)
         self.dashboard_tick = 0
-        self.DASHBOARD_EVERY_N = 10  # publish every N control ticks (~0.5s at 20Hz)
+        self.DASHBOARD_EVERY_N = DASHBOARD_EVERY_N  # publish every N control ticks
     
     def get_transform(self, target_frame, source_frame):
         try:
@@ -274,17 +296,18 @@ class PickScrewdriver(Node):
             if self.start_pose is not None and self.start_pose.pose.position.x != 0.0:
                 self.state = OperationState.INFERENCE
                 self.timer = time.time()
-                # Capture the ACTUAL object position from TF for accurate plotting
-                # (the spawn command coordinates have an offset vs. the real sim frame)
-                if self.sim:
-                    obj_tf = self.get_transform('link_base', 'pick_target')
-                    if obj_tf is not None:
-                        self.target_spawn_x = obj_tf.transform.translation.x
-                        self.target_spawn_y = obj_tf.transform.translation.y
-                        self.get_logger().info(
-                            f'Actual object TF position: ({self.target_spawn_x:.3f}, {self.target_spawn_y:.3f})')
 
         elif self.state == OperationState.INFERENCE:
+            
+            # Capture the ACTUAL object position from TF for accurate plotting
+            # We wait until step 10 (0.5s into inference) to ensure Isaac Sim has spawned the object and updated TF
+            if self.step == 10 and self.sim:
+                obj_tf = self.get_transform('link_base', 'pick_target')
+                if obj_tf is not None:
+                    self.target_spawn_x = obj_tf.transform.translation.x
+                    self.target_spawn_y = obj_tf.transform.translation.y
+                    self.get_logger().info(
+                        f'Actual object TF position (Step 10): ({self.target_spawn_x:.3f}, {self.target_spawn_y:.3f})')
 
             _infer_start = time.time()
             self.action = self.imitation.step(self.image, self.observation_pose)
@@ -305,7 +328,7 @@ class PickScrewdriver(Node):
             self.current_pose_relativ.header.frame_id = 'gripper_link_base'
             
             # Speed multiplier to compensate for small deltas at 20Hz
-            self.speed_multiplier = 40.0
+            self.speed_multiplier = SPEED_MULTIPLIER
             
             self.current_pose_relativ.pose.position.x = float(self.action[0]) * self.speed_multiplier
             self.current_pose_relativ.pose.position.y = float(self.action[1]) * self.speed_multiplier
@@ -383,7 +406,7 @@ class PickScrewdriver(Node):
                 self.timer = time.time()
 
         elif self.state == OperationState.GO_CLOSE:
-                self.observation_current_pose.pose.position.z = 0.085 ## final grasp height
+                self.observation_current_pose.pose.position.z = FINAL_GRASP_Z ## final grasp height
                 self.publisher_speed_limiter.publish(self.observation_current_pose)
                 if time.time() - self.timer > 5.0:
                     self.state = OperationState.CLOSE_GRIPPER
@@ -504,9 +527,11 @@ class PickScrewdriver(Node):
         ax.set_title('Top-Down Trajectory (X-Y Plane)')
         ax.set_xlabel('X (m)')
         ax.set_ylabel('Y (m)')
+        ax.set_xlim(PLOT_X_LIMS)
+        ax.set_ylim(PLOT_Y_LIMS)
         ax.legend(fontsize=8, loc='best')
         ax.grid(True, alpha=0.3)
-        ax.set_aspect('equal', adjustable='datalim')
+        ax.set_aspect('equal', adjustable='box')
 
         # --- Panel (0,1): Z-Height over Steps ---
         ax = axes[0, 1]
@@ -595,14 +620,16 @@ class PickScrewdriver(Node):
                 ax1.scatter(self.target_spawn_x, self.target_spawn_y,
                            color='red', marker='*', s=200, zorder=5, label='Target')
                 # Draw success zone circle
-                circle = plt.Circle((self.target_spawn_x, self.target_spawn_y), 0.018, color='green', fill=False, linestyle='--', linewidth=1.5, label='Success Zone')
+                circle = plt.Circle((self.target_spawn_x, self.target_spawn_y), SUCCESS_ZONE_RADIUS, color='green', fill=False, linestyle='--', linewidth=1.5, label='Success Zone')
                 ax1.add_patch(circle)
             ax1.set_title('X-Y Trajectory', fontsize=10)
             ax1.set_xlabel('X (m)', fontsize=8)
             ax1.set_ylabel('Y (m)', fontsize=8)
+            ax1.set_xlim(PLOT_X_LIMS)
+            ax1.set_ylim(PLOT_Y_LIMS)
             ax1.legend(fontsize=7, loc='best')
             ax1.grid(True, alpha=0.3)
-            ax1.set_aspect('equal', adjustable='datalim')
+            ax1.set_aspect('equal', adjustable='box')
 
             # --- (0,1) Live Z-Height ---
             ax2 = fig.add_subplot(gs[0, 1])
@@ -634,7 +661,7 @@ class PickScrewdriver(Node):
             if self.target_spawn_x is not None and len(obs_arr) > 0:
                 distances = np.sqrt((obs_arr[:, 0] - self.target_spawn_x)**2 + (obs_arr[:, 1] - self.target_spawn_y)**2)
                 ax4.plot(range(len(distances)), distances, color='crimson', linewidth=1.5, label='X-Y Distance')
-                ax4.axhline(y=0.018, color='green', linestyle='--', linewidth=1.5, label='Success Zone (0.018m)')
+                ax4.axhline(y=SUCCESS_ZONE_RADIUS, color='green', linestyle='--', linewidth=1.5, label=f'Success Zone ({SUCCESS_ZONE_RADIUS}m)')
             ax4.set_title('Distance to Target over Steps', fontsize=10)
             ax4.set_xlabel('Step', fontsize=8)
             ax4.set_ylabel('Distance (m)', fontsize=8)
