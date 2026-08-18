@@ -47,15 +47,15 @@ MAX_EPISODE_STEPS_REAL = 1600   # Timeout steps for real robot
 DASHBOARD_EVERY_N = 10          # Update dashboard every N control ticks (10 = ~2Hz)
 XY_SETTLE_TOLERANCE = 0.019     # Gripper must move less than this (m) in XY to be "settled"
 XY_SETTLE_FRAMES = 10           # Number of frames (ticks) the gripper must remain settled
-SUCCESS_ZONE_RADIUS = 0.018     # Radius (m) of the success zone circle around the target
+SUCCESS_ZONE_RADIUS = 0.02     # Radius (m) of the success zone circle around the target
 
 # Randomization boundaries for the object spawn
 SPAWN_X_MIN, SPAWN_X_MAX = 0.22, 0.40
 SPAWN_Y_MIN, SPAWN_Y_MAX = -0.12, 0.18
 
-# Fixed Plot limits covering the whole area + padding
-PLOT_X_LIMS = [0.18, 0.44]
-PLOT_Y_LIMS = [-0.18, 0.22]
+# Fixed Plot limits covering the whole area + extra wide margin
+PLOT_X_LIMS = [0.12, 0.50]
+PLOT_Y_LIMS = [-0.25, 0.25]
 # ---------------------------------------------------------
 
 
