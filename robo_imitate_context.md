@@ -1,88 +1,123 @@
-# Contexto de Implementación: Proyecto robo_imitate (Imitation Learning)
+# Implementation Context: robo_imitate Project (Imitation Learning)
 
-## 1. Información General del Entorno
-* **Objetivo:** Ejecutar, entrenar y evaluar una *Diffusion Policy* para el brazo robótico Lite 6 utilizando el repositorio [MarijaGolubovic/robo_imitate](https://github.com/MarijaGolubovic/robo_imitate).
-* **Hardware Anfitrión (Host):**
+## 1. General Environment Information
+* **Objective:** Run, train, and evaluate a *Diffusion Policy* for the Lite 6 robotic arm using the [MarijaGolubovic/robo_imitate](https://github.com/MarijaGolubovic/robo_imitate) repository.
+* **Host Hardware:**
   * OS: Ubuntu 24.04 x86_64
-  * CPU: 13th Gen Intel Core i9-13950HX (32 hilos)
+  * CPU: 13th Gen Intel Core i9-13950HX (32 threads)
   * RAM: 32 GB
   * GPU: NVIDIA GeForce RTX 4060 Max-Q (8 GB VRAM)
-* **Requisitos Previos Cumplidos:**
-  * Docker y NVIDIA Container Toolkit instalados y configurados correctamente.
-  * **Cuenta activa en NVIDIA Developer Program** (Requerida para descargar la imagen de Isaac Sim).
+* **Prerequisites Met:**
+  * Docker and NVIDIA Container Toolkit installed and correctly configured.
+  * **Active NVIDIA Developer Program account** (required to download Isaac Sim image).
 
 ---
 
-## 2. Estado Actual y Logros (Pipeline Resuelto)
+## 2. Current State & Achievements (Resolved Pipeline)
 
-Se ha corregido exitosamente el "Dependency Hell" del repositorio original. Todo el proyecto está estructurado para ejecutarse estrictamente mediante contenedores Docker.
+The original repository's "Dependency Hell" has been fully resolved. The entire project is structured to run strictly via Docker containers.
 
-### Fase A: Entrenamiento del Modelo (Completado)
-* **Archivo de configuración corregido:** `Dockerfile` (raíz).
-* **Problemas resueltos:**
-  * Incompatibilidad del ABI de NumPy 2.x con PyTorch precompilado.
-  * Incompatibilidad de `diffusers` con aceleradores XPU (Intel) en un entorno CUDA.
-  * Desaprobación de la función `cached_download` en `huggingface_hub`.
-* **Solución aplicada (Version Pinning estricto):**
-  Se modificó la capa de dependencias en el Dockerfile para anclar:
-  `'numpy<2.0.0'`
-  `'diffusers==0.27.2'`
-  `'huggingface-hub==0.25.2'`
-* **Estado:** El modelo se entrenó con éxito por 1000 épocas. Los archivos de pesos (`model.safetensors` y `config.json`) se encuentran en `~/Documents/gits/robo_imitate/imitation/outputs/train/`.
+### Phase A: Model Training (Completed)
+* **Fixed config file:** `Dockerfile` (root).
+* **Resolved issues:**
+  * NumPy 2.x ABI incompatibility with precompiled PyTorch.
+  * `diffusers` incompatibility with XPU (Intel) accelerators in a CUDA environment.
+  * Deprecation of `cached_download` in `huggingface_hub`.
+* **Applied solution (strict version pinning):**
+  `'numpy<2.0.0'`, `'diffusers==0.27.2'`, `'huggingface-hub==0.25.2'`
+* **Status:** Model trained successfully. Weight files (`model.safetensors` and `config.json`) are in `~/Documents/gits/robo_imitate/imitation/outputs/train/`.
 
-### Fase B: Inferencia y Controlador ROS 2 (Configurado)
-* **Archivo de configuración corregido:** `docker/Dockerfile.pc`.
-* **Problema resuelto:** Falla en la compilación de `colcon` por ausencia de la dependencia `ros-testing`.
-* **Solución aplicada:** Se agregó el flag `--cmake-args -DBUILD_TESTING=OFF` en la compilación de los paquetes de ROS 2.
-* **Comandos probados:** `make build-pc`, `make run`, `make exec`.
-* **Estado:** El controlador `xarm_bringup` (ROS 2) está listo para operar, pero requiere la retroalimentación de Isaac Sim para levantar los controladores y publicar TFs en RViz2.
+### Phase B: Inference and ROS 2 Controller (Configured)
+* **Fixed config file:** `docker/Dockerfile.pc`.
+* **Resolved issue:** `colcon` build failure due to missing `ros-testing` dependency.
+* **Applied solution:** Added `--cmake-args -DBUILD_TESTING=OFF` flag.
+* **Status:** The `xarm_bringup` controller (ROS 2) is ready to operate, connected to Isaac Sim 4.2.0.
 
-### Fase C: Depuración y Optimización Profunda (Completado)
-* **El Problema del Movimiento Ciego:** En inferencia, el robot ignoraba la cámara y repetía ciegamente el mismo movimiento. Diagnóstico: *Colapso Posterior (State Overfitting)*.
-* **Solución Arquitectónica:** Se desconectó `observation.state` (las coordenadas absolutas del brazo) de la condición global de la *Diffusion Policy* (`diffusion_policy.py`). Esto forzó a la red neuronal a depender exclusivamente de la imagen para calcular los deltas relativos.
-* **Bug de Simulación Resuelto:** Se parcheó `pick_screwdriver.py` (`--sim`) porque un mensaje `Twist()` vacío causaba que el destornillador spawneara estáticamente siempre en `(0.35, 0.10)`. Se añadió generación aleatoria para coincidir con la distribución del entrenamiento.
-* **Optimización Extrema de Rendimiento:** 
-  * Se reescribió `train_script` introduciendo `GPUDataset` para cargar todo el dataset directamente en la VRAM, eliminando el cuello de botella CPU-GPU.
-  * Se habilitó hardware optimization de PyTorch (TF32, `cudnn.benchmark`) y AMP `bfloat16` (`torch.autocast`).
-  * Se implementó un programador `CosineAnnealingLR`, recorte de gradientes (`max_norm=10.0`) y se escaló dinámicamente la tasa de aprendizaje.
-  * Se habilitaron los pesos pre-entrenados `IMAGENET1K_V1` para el ResNet-18.
-* **Estado Actual:** Entrenamiento ultra-acelerado (>3x) con 50% menos consumo de VRAM (permitiendo un batch de 512), y un agente de inferencia funcional que ahora sí realiza seguimiento visual.
+### Phase C: Deep Debugging & Optimization (Completed)
+* **Blind Movement Problem:** Robot ignored camera and blindly repeated the same trajectory. Diagnosis: *Posterior Collapse (State Overfitting)*.
+* **Architectural Solution:** Disconnected `observation.state` from the Diffusion Policy's global conditioning in `diffusion_policy.py`. This forces the neural network to rely exclusively on the camera image for computing relative deltas.
+* **Simulation Bug Fixed:** Patched `pick_screwdriver.py` (`--sim`) where an empty `Twist()` message caused the screwdriver to always spawn statically at `(0.35, 0.10)`. Added random generation to match the training distribution.
+* **Extreme Performance Optimization:**
+  * Rewrote training pipeline (later moved dataset caching from GPU back to CPU to prevent VRAM overflow on 8GB card).
+  * Enabled PyTorch hardware optimizations (TF32, `cudnn.benchmark`) and AMP `bfloat16` (`torch.autocast`).
+  * Implemented `CosineAnnealingLR` scheduler, gradient clipping (`max_norm=10.0`), and dynamically scaled learning rate.
+  * Enabled `IMAGENET1K_V1` pre-trained weights for ResNet-18.
+
+### Phase D: Speed & Reactivity Tuning (Current)
+* **Problem:** After switching from 10Hz to 20Hz dataset (fps=20), the robot appeared to move in slow-motion because each predicted delta covers half the distance.
+* **Solution:** Added a `speed_multiplier` (currently `40.0`) in `pick_screwdriver` that scales the predicted action deltas at runtime, restoring physical movement speed without retraining.
+* **`n_action_steps` tuning:** Increased from 4 to 14 (max allowed is `horizon - n_obs_steps + 1 - 1 = 14`) for smoother, less jerky execution between replanning steps.
+* **`num_inference_steps`:** Set to 12 (overridden post-load in `inference.py` line 21) — a balance between action quality and control-loop budget.
 
 ---
 
-## 3. El Desafío Actual: Simulación con NVIDIA Isaac Sim (Resuelto)
+## 3. Current Parameter State
 
-Para cerrar el bucle y evaluar la inferencia del modelo, es mandatorio conectar el controlador de ROS 2 con el simulador Isaac Sim.
+| Parameter | Value | Location |
+|---|---|---|
+| `n_obs_steps` | 2 | `config.py` |
+| `horizon` | 16 | `config.py` |
+| `n_action_steps` | 14 | `config.py` |
+| `num_inference_steps` | 12 | `inference.py` (overrides config) |
+| `speed_multiplier` | 40.0 | `pick_screwdriver` (runtime) |
+| `timer_freq` | 0.05s (20Hz) | `pick_screwdriver` |
+| `fps` (dataset) | 20 | `dataset.py` |
+| `trigger_z` | 0.135 m | `pick_screwdriver` |
+| `final_grasp_z` | 0.085 m | `pick_screwdriver` (GO_CLOSE state) |
+| `max_episode_steps` | 1500 (sim) / 1600 (real) | `pick_screwdriver` |
+| `image_size` | 256×256 | `config.py` / `pick_screwdriver` |
+| `crop_shape` | 224×224 | `config.py` |
+| `noise_scheduler` | DDIM | `config.py` |
 
-* **El Problema Descubierto:** Intentar utilizar versiones muy recientes de Isaac Sim (`6.0.0`) no funciona con el proyecto original debido a cambios masivos en OmniGraph y la falta de compatibilidad directa. Además, la versión `2023.1.1` original del proyecto fue eliminada del registro NGC.
-* **La Solución:** Utilizar la imagen **`nvcr.io/nvidia/isaac-sim:4.2.0`**, la cual ofrece un equilibrio perfecto (OmniGraph estable y compatibilidad con ROS 2 Humble). Sin embargo, esta imagen carece de la instalación base de ROS 2 necesaria para el Bridge.
+---
 
-### Pasos para Configurar Isaac Sim 4.2.0 con ROS 2
+## 4. Simulation: NVIDIA Isaac Sim (Resolved)
 
-**1. Lanzar el contenedor de Isaac Sim:**
-```bash
-docker run --name isaac-sim-4.2 --entrypoint bash -it --gpus all -e "ACCEPT_EULA=Y" --rm --network=host \
-    -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix \
-    -v ~/Documents/gits/robo_imitate:/workspace/robo_imitate \
-    nvcr.io/nvidia/isaac-sim:4.2.0
-```
+* **Image:** `nvcr.io/nvidia/isaac-sim:4.2.0` (NGC)
+* **ROS 2 Bridge:** Manually installed `ros-humble-ros-base` inside the container.
+* **Scene:** `xarm_bringup/isaac/object_picking.usda`
+* **Key Topics:** `/isaac/joint_states`, `/isaac/joint_command`, `/rgb`, `/tf`, `/respawn`
 
-**2. Instalar ROS 2 Humble dentro del contenedor:**
-Una vez dentro del contenedor como `root`, ejecuta el siguiente script para instalar la base de ROS 2 y habilitar el Bridge:
-```bash
-# Agregar llaves y repositorios de ROS 2
-apt-get update && apt-get install -y curl software-properties-common
-curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+---
 
-# Instalar ROS 2 base
-apt-get update && apt-get install -y ros-humble-ros-base
+## 5. Monitoring & Visualization
 
-# Activar ROS 2 en el entorno
-source /opt/ros/humble/setup.bash
+### Post-Run Plots (saved after each inference run)
+Located in `imitation/outputs/results/<timestamp>/`:
+* **`summary.png`** — 2×2 grid with:
+  * Top-Left: Top-down X-Y trajectory (observed path + commanded targets + error line)
+  * Top-Right: Z-height descent profile with trigger height line
+  * Bottom-Left: Inference latency histogram with budget line
+  * Bottom-Right: Text stats panel (steps, error, latency, config params)
+* **`run_metrics.csv`** — Per-run metrics
+* **`global_metrics.csv`** — Accumulated metrics across all runs
 
-# Iniciar Isaac Sim
-./runapp.sh
-```
+### Real-Time Dashboard (live during inference)
+* **ROS 2 topic:** `/inference_dashboard/compressed` (CompressedImage, JPEG)
+* **Update rate:** ~2 Hz (every 10 control ticks)
+* **View with:** `rqt_image_view` or `ros2 run image_view image_view --ros-args -r image:=/inference_dashboard/compressed`
+* **Contents:** 2×2 live grid showing X-Y trajectory, Z-height, rolling latency bars, and real-time stats
 
-Con esto, los Action Graphs de Isaac Sim podrán comunicarse exitosamente con el `robo_imitate-container` a través de DDS.
+### 3D Trajectory Plots
+* Saved to `action_trajectoris/sim/` or `action_trajectoris/real/` when max_episode_steps is exceeded.
+* Shows observation vs. action trajectories in 3D space.
+
+---
+
+## 6. Key File Map
+
+| File | Purpose |
+|---|---|
+| `imitation/pick_screwdriver` | Main inference script — executes Diffusion Policy, controls robot, saves metrics, publishes dashboard |
+| `imitation/common/config.py` | DiffusionConfig dataclass (all hyperparameters) |
+| `imitation/common/inference.py` | Model loading & single-step inference wrapper |
+| `imitation/common/diffusion_policy.py` | Full Diffusion Policy architecture (UNet, DDIM, ResNet encoder) |
+| `imitation/common/dataset.py` | LeRobotDataset — parquet loader with delta timestamps |
+| `imitation/common/utils.py` | Utility functions including 3D trajectory plotting |
+| `imitation/train_script` | Training script (DataLoader, CosineAnnealingLR, checkpointing) |
+| `imitation/compute_stats` | Compute dataset normalization statistics |
+| `xarm_bringup/scripts/episode_generator_picking` | Heuristic data collection — automated pick demonstrations |
+| `xarm_bringup/scripts/episode_recorder` | Records episodes (images + observations) |
+| `xarm_bringup/scripts/save_parquet` | Converts recorded episodes to parquet format |
+| `verify_color_pipeline.py` | RGB vs BGR color diagnostics tool |
+| `fix_actions.py` | Recalculates action files from observations |

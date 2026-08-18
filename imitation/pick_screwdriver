@@ -1,11 +1,14 @@
 #! /usr/bin/env python3
 
+import matplotlib
+matplotlib.use('Agg')  # headless backend — must be set before any pyplot import
+
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped, Twist, Pose
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from std_msgs.msg import Float64MultiArray, Int32
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge
 
 
@@ -21,6 +24,7 @@ import re
 import time
 import cv2
 import os
+import io
 import tf2_ros
 import random
 import pandas as pd
@@ -199,6 +203,15 @@ class PickScrewdriver(Node):
         
         self.final_gripper_x = None
         self.final_gripper_y = None
+
+        # Trigger height for the grasp sequence
+        self.trigger_z = 0.135
+
+        # Real-time dashboard publisher (~2 Hz via throttle counter)
+        self.dashboard_pub = self.create_publisher(
+            CompressedImage, '/inference_dashboard/compressed', 1)
+        self.dashboard_tick = 0
+        self.DASHBOARD_EVERY_N = 10  # publish every N control ticks (~0.5s at 20Hz)
     
     def get_transform(self, target_frame, source_frame):
         try:
@@ -261,6 +274,15 @@ class PickScrewdriver(Node):
             if self.start_pose is not None and self.start_pose.pose.position.x != 0.0:
                 self.state = OperationState.INFERENCE
                 self.timer = time.time()
+                # Capture the ACTUAL object position from TF for accurate plotting
+                # (the spawn command coordinates have an offset vs. the real sim frame)
+                if self.sim:
+                    obj_tf = self.get_transform('link_base', 'pick_target')
+                    if obj_tf is not None:
+                        self.target_spawn_x = obj_tf.transform.translation.x
+                        self.target_spawn_y = obj_tf.transform.translation.y
+                        self.get_logger().info(
+                            f'Actual object TF position: ({self.target_spawn_x:.3f}, {self.target_spawn_y:.3f})')
 
         elif self.state == OperationState.INFERENCE:
 
@@ -282,16 +304,16 @@ class PickScrewdriver(Node):
             self.current_pose_relativ.header.stamp = self.get_clock().now().to_msg()
             self.current_pose_relativ.header.frame_id = 'gripper_link_base'
             
-            # Multiplicador de velocidad para compensar los deltas pequeños de 20Hz
-            speed_multiplier = 40.0
+            # Speed multiplier to compensate for small deltas at 20Hz
+            self.speed_multiplier = 40.0
             
-            self.current_pose_relativ.pose.position.x = float(self.action[0]) * speed_multiplier
-            self.current_pose_relativ.pose.position.y = float(self.action[1]) * speed_multiplier
-            self.current_pose_relativ.pose.position.z = float(self.action[2]) * speed_multiplier
+            self.current_pose_relativ.pose.position.x = float(self.action[0]) * self.speed_multiplier
+            self.current_pose_relativ.pose.position.y = float(self.action[1]) * self.speed_multiplier
+            self.current_pose_relativ.pose.position.z = float(self.action[2]) * self.speed_multiplier
 
-            quat = t3d.euler.euler2quat(self.action[3] * speed_multiplier, 
-                                        self.action[4] * speed_multiplier, 
-                                        self.action[5] * speed_multiplier)
+            quat = t3d.euler.euler2quat(self.action[3] * self.speed_multiplier, 
+                                        self.action[4] * self.speed_multiplier, 
+                                        self.action[5] * self.speed_multiplier)
 
             self.current_pose_relativ.pose.orientation.x = float(quat[1])
             self.current_pose_relativ.pose.orientation.y = float(quat[2])
@@ -325,7 +347,7 @@ class PickScrewdriver(Node):
                 xy_settled = (max(xs) - min(xs) < self.xy_settle_tolerance) and \
                              (max(ys) - min(ys) < self.xy_settle_tolerance)
 
-            if self.observation_current_pose.pose.position.z < 0.135 and xy_settled:
+            if self.observation_current_pose.pose.position.z < self.trigger_z and xy_settled:
                 self.final_gripper_x = self.observation_current_pose.pose.position.x
                 self.final_gripper_y = self.observation_current_pose.pose.position.y
                 self.state = OperationState.OPEN_GRIPPER
@@ -337,6 +359,12 @@ class PickScrewdriver(Node):
             self.publisher_speed_limiter.publish(self.current_pose)
 
             self.step += 1
+
+            # Real-time dashboard (throttled)
+            self.dashboard_tick += 1
+            if self.dashboard_tick >= self.DASHBOARD_EVERY_N:
+                self.dashboard_tick = 0
+                self.publish_dashboard()
 
             if self.step > self.max_episode_steps:
                 plot_action_trajectory(self.sim, self.plotting_observations, self.plotting_actions)
@@ -355,7 +383,7 @@ class PickScrewdriver(Node):
                 self.timer = time.time()
 
         elif self.state == OperationState.GO_CLOSE:
-                self.observation_current_pose.pose.position.z = 0.085 ## altura final de agarre
+                self.observation_current_pose.pose.position.z = 0.085 ## final grasp height
                 self.publisher_speed_limiter.publish(self.observation_current_pose)
                 if time.time() - self.timer > 5.0:
                     self.state = OperationState.CLOSE_GRIPPER
@@ -398,16 +426,18 @@ class PickScrewdriver(Node):
         # 1. Target Reaching Error
         error = -1.0
         if self.target_spawn_x is not None and self.final_gripper_x is not None:
-            error = math.sqrt((self.final_gripper_x - self.target_spawn_x)**2 + (self.final_gripper_y - self.target_spawn_y)**2)
-        
+            error = math.sqrt((self.final_gripper_x - self.target_spawn_x)**2 +
+                              (self.final_gripper_y - self.target_spawn_y)**2)
+
         # 2. Smoothness / Jerk (Variance of deltas)
-        actions = np.array(self.plotting_actions)
+        actions_arr = np.array(self.plotting_actions) if len(self.plotting_actions) else np.empty((0, 3))
+        obs_arr = np.array(self.plotting_observations) if len(self.plotting_observations) else np.empty((0, 3))
         smoothness = -1.0
-        if len(actions) > 1:
-            deltas = np.diff(actions, axis=0)
+        if len(actions_arr) > 1:
+            deltas = np.diff(actions_arr, axis=0)
             smoothness = float(np.var(deltas))
 
-        # 3. Inference latency vs. control-loop budget (real-time bottleneck check)
+        # 3. Inference latency vs. control-loop budget
         latencies = np.array(self.inference_latencies)
         mean_latency_ms = float(latencies.mean() * 1000) if len(latencies) else -1.0
         max_latency_ms = float(latencies.max() * 1000) if len(latencies) else -1.0
@@ -417,9 +447,9 @@ class PickScrewdriver(Node):
             verdict = "BOTTLENECK" if over_budget_pct > 5 else "ok"
             self.get_logger().info(
                 f'Inference latency: mean={mean_latency_ms:.1f}ms max={max_latency_ms:.1f}ms '
-                f'budget={budget_ms:.0f}ms ({over_budget_pct:.1f}% of steps over budget) -> {verdict}')
+                f'budget={budget_ms:.0f}ms ({over_budget_pct:.1f}% over budget) -> {verdict}')
 
-        # 4. Create DataFrame
+        # 4. Save CSV
         df = pd.DataFrame([{
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "target_spawn_x": self.target_spawn_x,
@@ -434,53 +464,205 @@ class PickScrewdriver(Node):
             "inference_latency_budget_ms": budget_ms,
             "inference_steps_over_budget_pct": over_budget_pct,
         }])
-
-        # Save to local run folder
         local_csv = os.path.join(self.metrics_folder, "run_metrics.csv")
         df.to_csv(local_csv, index=False)
-
-        # Save/Append to global CSV
         if not os.path.exists(self.global_csv_path):
             df.to_csv(self.global_csv_path, index=False)
         else:
             df.to_csv(self.global_csv_path, mode='a', header=False, index=False)
 
-        # Plot 2D Trajectory (Top-Down view)
-        if len(self.plotting_observations) > 0:
-            obs = np.array(self.plotting_observations)
-            plt.figure(figsize=(10, 8))
-            plt.plot(obs[:, 0], obs[:, 1], label="Gripper Trajectory", color="blue", linewidth=2)
-            plt.scatter(obs[0, 0], obs[0, 1], color="green", s=100, label="Start", zorder=5)
-            
+        # -----------------------------------------------------------
+        # 5. Generate 2x2 Summary Figure
+        # -----------------------------------------------------------
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        fig.suptitle('Inference Run Summary', fontsize=16, fontweight='bold')
+
+        # --- Panel (0,0): 2D Trajectory (top-down X-Y) ---
+        ax = axes[0, 0]
+        if len(obs_arr) > 0:
+            ax.plot(obs_arr[:, 0], obs_arr[:, 1],
+                    label='Observed Gripper Path', color='dodgerblue', linewidth=2)
+            ax.scatter(obs_arr[0, 0], obs_arr[0, 1],
+                       color='limegreen', s=120, zorder=5, label='Start', edgecolors='k')
+        if len(actions_arr) > 0:
+            ax.plot(actions_arr[:, 0], actions_arr[:, 1],
+                    label='Commanded Target Path', color='orange', linewidth=1.5, linestyle='--')
+        if self.final_gripper_x is not None:
+            ax.scatter(self.final_gripper_x, self.final_gripper_y,
+                       color='blue', marker='X', s=120, zorder=5,
+                       label='Final Gripper Pose', edgecolors='k')
+        if self.target_spawn_x is not None:
+            ax.scatter(self.target_spawn_x, self.target_spawn_y,
+                       color='red', marker='*', s=250, zorder=5,
+                       label='Object Target')
+            # Dashed error line
             if self.final_gripper_x is not None:
-                plt.scatter(self.final_gripper_x, self.final_gripper_y, color="blue", marker="X", s=100, label="Final Gripper Pose", zorder=5)
-            
+                ax.plot([self.final_gripper_x, self.target_spawn_x],
+                        [self.final_gripper_y, self.target_spawn_y],
+                        'r--', linewidth=1, alpha=0.6,
+                        label=f'Error: {error:.4f} m')
+        ax.set_title('Top-Down Trajectory (X-Y Plane)')
+        ax.set_xlabel('X (m)')
+        ax.set_ylabel('Y (m)')
+        ax.legend(fontsize=8, loc='best')
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal', adjustable='datalim')
+
+        # --- Panel (0,1): Z-Height over Steps ---
+        ax = axes[0, 1]
+        if len(obs_arr) > 0:
+            steps_range = range(len(obs_arr))
+            ax.plot(steps_range, obs_arr[:, 2],
+                    color='purple', linewidth=2, label='Observed Z')
+        if len(actions_arr) > 0:
+            ax.plot(range(len(actions_arr)), actions_arr[:, 2],
+                    color='orange', linewidth=1.5, linestyle='--', label='Commanded Z')
+        ax.axhline(y=self.trigger_z, color='red', linestyle=':',
+                   linewidth=1.5, label=f'Trigger Height ({self.trigger_z} m)')
+        ax.set_title('Z-Height (Descent Profile) over Steps')
+        ax.set_xlabel('Step')
+        ax.set_ylabel('Z Height (m)')
+        ax.legend(fontsize=8, loc='best')
+        ax.grid(True, alpha=0.3)
+
+        # --- Panel (1,0): Inference Latency Histogram ---
+        ax = axes[1, 0]
+        if len(latencies) > 0:
+            latencies_ms = latencies * 1000
+            ax.hist(latencies_ms, bins=30, color='steelblue', edgecolor='white', alpha=0.8)
+            ax.axvline(x=budget_ms, color='red', linestyle='--',
+                       linewidth=2, label=f'Budget ({budget_ms:.0f} ms)')
+            ax.axvline(x=mean_latency_ms, color='green', linestyle='-',
+                       linewidth=1.5, label=f'Mean ({mean_latency_ms:.1f} ms)')
+        ax.set_title('Inference Latency Distribution')
+        ax.set_xlabel('Latency (ms)')
+        ax.set_ylabel('Count')
+        ax.legend(fontsize=8, loc='best')
+        ax.grid(True, alpha=0.3)
+
+        # --- Panel (1,1): Stats Summary Text ---
+        ax = axes[1, 1]
+        ax.axis('off')
+        stats_lines = [
+            f'Total Steps: {self.step}',
+            f'Target Position: ({self.target_spawn_x:.3f}, {self.target_spawn_y:.3f})' if self.target_spawn_x else 'Target Position: N/A',
+            f'Final Gripper: ({self.final_gripper_x:.3f}, {self.final_gripper_y:.3f})' if self.final_gripper_x else 'Final Gripper: N/A',
+            f'Target Reaching Error: {error:.4f} m' if error >= 0 else 'Target Reaching Error: N/A',
+            '',
+            f'Trajectory Variance: {smoothness:.6f}' if smoothness >= 0 else 'Trajectory Variance: N/A',
+            '',
+            f'Latency Mean: {mean_latency_ms:.1f} ms',
+            f'Latency Max: {max_latency_ms:.1f} ms',
+            f'Control Budget: {budget_ms:.0f} ms ({1.0/self.timer_freq:.0f} Hz)',
+            f'Steps Over Budget: {over_budget_pct:.1f}%',
+            '',
+            f'n_action_steps: {self.imitation.policy.config.n_action_steps}',
+            f'num_inference_steps: {self.imitation.policy.diffusion.num_inference_steps}',
+            f'speed_multiplier: {self.speed_multiplier}',
+        ]
+        stats_text = '\n'.join(stats_lines)
+        ax.text(0.05, 0.95, stats_text, transform=ax.transAxes,
+                fontsize=12, verticalalignment='top', fontfamily='monospace',
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='lightyellow', alpha=0.8))
+        ax.set_title('Run Statistics')
+
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        summary_path = os.path.join(self.metrics_folder, 'summary.png')
+        plt.savefig(summary_path, bbox_inches='tight', dpi=150)
+        plt.close(fig)
+        self.get_logger().info(f'Summary saved to {summary_path}')
+
+    # ------------------------------------------------------------------
+    # Real-time dashboard published as CompressedImage (~2 Hz)
+    # ------------------------------------------------------------------
+    def publish_dashboard(self):
+        """Render a 2x2 live dashboard and publish as CompressedImage."""
+        try:
+            obs_arr = np.array(self.plotting_observations) if len(self.plotting_observations) else np.empty((0, 3))
+            act_arr = np.array(self.plotting_actions) if len(self.plotting_actions) else np.empty((0, 3))
+
+            fig, axes = plt.subplots(2, 2, figsize=(10, 7.5), dpi=100)
+            fig.suptitle(f'Live Inference Dashboard  —  Step {self.step}', fontsize=13, fontweight='bold')
+
+            # --- (0,0) Live 2D Trajectory ---
+            ax = axes[0, 0]
+            if len(obs_arr) > 0:
+                ax.plot(obs_arr[:, 0], obs_arr[:, 1], color='dodgerblue', linewidth=1.5, label='Gripper')
+                ax.scatter(obs_arr[-1, 0], obs_arr[-1, 1], color='dodgerblue', s=60, zorder=5, edgecolors='k')
+                ax.scatter(obs_arr[0, 0], obs_arr[0, 1], color='limegreen', s=80, zorder=5, label='Start')
             if self.target_spawn_x is not None:
-                plt.scatter(self.target_spawn_x, self.target_spawn_y, color="red", marker="*", s=200, label="Screwdriver Target", zorder=5)
+                ax.scatter(self.target_spawn_x, self.target_spawn_y,
+                           color='red', marker='*', s=200, zorder=5, label='Target')
+            ax.set_title('X-Y Trajectory', fontsize=10)
+            ax.set_xlabel('X (m)', fontsize=8)
+            ax.set_ylabel('Y (m)', fontsize=8)
+            ax.legend(fontsize=7, loc='best')
+            ax.grid(True, alpha=0.3)
+            ax.set_aspect('equal', adjustable='datalim')
 
-            plt.title("Top-Down View (X-Y Plane)")
-            plt.xlabel("X axis")
-            plt.ylabel("Y axis")
-            plt.legend()
-            plt.grid(True)
-            plot_path = os.path.join(self.metrics_folder, "trajectory_2d.png")
-            plt.savefig(plot_path, bbox_inches='tight')
-            plt.close()
+            # --- (0,1) Live Z-Height ---
+            ax = axes[0, 1]
+            if len(obs_arr) > 0:
+                ax.plot(range(len(obs_arr)), obs_arr[:, 2], color='purple', linewidth=1.5)
+            ax.axhline(y=self.trigger_z, color='red', linestyle=':', linewidth=1.5, label=f'Trigger ({self.trigger_z}m)')
+            ax.set_title('Z-Height over Steps', fontsize=10)
+            ax.set_xlabel('Step', fontsize=8)
+            ax.set_ylabel('Z (m)', fontsize=8)
+            ax.legend(fontsize=7, loc='best')
+            ax.grid(True, alpha=0.3)
 
-            # Plot Z trajectory
-            plt.figure(figsize=(10, 4))
-            plt.plot(range(len(obs)), obs[:, 2], color="purple", linewidth=2)
-            plt.title("Z-axis (Height) over Steps")
-            plt.xlabel("Step")
-            plt.ylabel("Z Height")
-            plt.grid(True)
-            plot_path_z = os.path.join(self.metrics_folder, "trajectory_z.png")
-            plt.savefig(plot_path_z, bbox_inches='tight')
-            plt.close()
+            # --- (1,0) Rolling Latency Bar ---
+            ax = axes[1, 0]
+            n_show = min(40, len(self.inference_latencies))
+            if n_show > 0:
+                recent = np.array(self.inference_latencies[-n_show:]) * 1000
+                colors = ['tomato' if v > self.timer_freq * 1000 else 'steelblue' for v in recent]
+                ax.bar(range(n_show), recent, color=colors, edgecolor='white', linewidth=0.3)
+                ax.axhline(y=self.timer_freq * 1000, color='red', linestyle='--', linewidth=1.5, label=f'Budget ({self.timer_freq*1000:.0f}ms)')
+            ax.set_title('Recent Inference Latency', fontsize=10)
+            ax.set_xlabel('Recent Steps', fontsize=8)
+            ax.set_ylabel('ms', fontsize=8)
+            ax.legend(fontsize=7, loc='best')
+            ax.grid(True, alpha=0.3)
 
-       
-        if check_pose_stamped_values(self.current_pose_relativ):
-            return
+            # --- (1,1) Live Stats ---
+            ax = axes[1, 1]
+            ax.axis('off')
+            cur_error = '—'
+            if self.target_spawn_x is not None and len(obs_arr) > 0:
+                dx = obs_arr[-1, 0] - self.target_spawn_x
+                dy = obs_arr[-1, 1] - self.target_spawn_y
+                cur_error = f'{math.sqrt(dx*dx + dy*dy):.4f} m'
+            mean_lat = f'{np.mean(self.inference_latencies)*1000:.1f}' if self.inference_latencies else '—'
+            cur_z = f'{obs_arr[-1, 2]:.3f}' if len(obs_arr) > 0 else '—'
+            lines = [
+                f'State:  {self.state.name}',
+                f'Step:   {self.step} / {self.max_episode_steps}',
+                f'Z now:  {cur_z} m',
+                f'Dist to target: {cur_error}',
+                f'Mean latency:   {mean_lat} ms',
+                f'Speed mult:     {self.speed_multiplier}x',
+            ]
+            ax.text(0.05, 0.95, '\n'.join(lines), transform=ax.transAxes,
+                    fontsize=11, verticalalignment='top', fontfamily='monospace',
+                    bbox=dict(boxstyle='round,pad=0.5', facecolor='lightyellow', alpha=0.8))
+            ax.set_title('Live Stats', fontsize=10)
+
+            plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+            # Render to JPEG bytes
+            buf = io.BytesIO()
+            fig.savefig(buf, format='jpg', bbox_inches='tight', dpi=100)
+            plt.close(fig)
+            buf.seek(0)
+
+            msg = CompressedImage()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.format = 'jpeg'
+            msg.data = buf.getvalue()
+            self.dashboard_pub.publish(msg)
+        except Exception as e:
+            self.get_logger().warn(f'Dashboard render error: {e}')
 
 def main(args=None):
 
