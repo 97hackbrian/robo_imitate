@@ -686,10 +686,9 @@ class PickScrewdriver(Node):
                 f'Mean latency:   {mean_lat} ms',
                 f'Speed mult:     {self.speed_multiplier}x',
             ]
-            ax5.text(0.5, 0.5, '\n'.join(lines), transform=ax5.transAxes,
+            ax5.text(0.5, 0.2, '\n'.join(lines), transform=ax5.transAxes,
                     fontsize=13, horizontalalignment='center', verticalalignment='center', fontfamily='monospace',
                     bbox=dict(boxstyle='round,pad=0.5', facecolor='lightyellow', alpha=0.8))
-            ax5.set_title('Live Stats', fontsize=10)
 
             plt.tight_layout(rect=[0, 0, 1, 0.95])
 
