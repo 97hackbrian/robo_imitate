@@ -45,8 +45,8 @@ TIMER_FREQ = 0.05               # Control loop timer (0.05 = 20Hz)
 MAX_EPISODE_STEPS_SIM = 1500    # Timeout steps for simulation
 MAX_EPISODE_STEPS_REAL = 1600   # Timeout steps for real robot
 DASHBOARD_EVERY_N = 10          # Update dashboard every N control ticks (10 = ~2Hz)
-XY_SETTLE_TOLERANCE = 0.019     # Gripper must move less than this (m) in XY to be "settled"
-XY_SETTLE_FRAMES = 10           # Number of frames (ticks) the gripper must remain settled
+XY_SETTLE_TOLERANCE = 0.015     # Gripper must move less than this (m) in XY to be "settled"
+XY_SETTLE_FRAMES = 6            # Number of frames (ticks) the gripper must remain settled
 SUCCESS_ZONE_RADIUS = 0.02     # Radius (m) of the success zone circle around the target
 
 # Randomization boundaries for the object spawn
