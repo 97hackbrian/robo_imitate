@@ -39,7 +39,7 @@ from collections import deque
 # --- CONFIGURATION CONSTANTS ---
 # ---------------------------------------------------------
 SPEED_MULTIPLIER = 40.0         # Scales the model's action deltas (needed for 20Hz)
-TRIGGER_Z = 0.15               # Z-height that triggers the descent sequence (m)
+TRIGGER_Z = 0.12               # Z-height that triggers the descent sequence (m)
 FINAL_GRASP_Z = 0.088           # Final Z-height for the gripper to close around object (m)
 TIMER_FREQ = 0.05               # Control loop timer (0.05 = 20Hz)
 MAX_EPISODE_STEPS_SIM = 1500    # Timeout steps for simulation
