@@ -27,6 +27,9 @@ import argparse
 from datetime import datetime
 from copy import deepcopy
 
+# Randomization boundaries for the object spawn
+SPAWN_X_MIN, SPAWN_X_MAX = 0.22, 0.40
+SPAWN_Y_MIN, SPAWN_Y_MAX = -0.12, 0.18
 
 class EnvStates(Enum):
     IDLE = 0
@@ -504,13 +507,13 @@ class ControlObjectPicking(Node):
         No rotation is applied.
 
         Constraints:
-        - X range: 0.25 – 0.42 m  (17 cm spread, within Lite6 reach)
-        - Y range: -0.08 – 0.18 m (26 cm spread, centered on camera FOV)
+        - X range: {SPAWN_X_MIN} – {SPAWN_X_MAX} m
+        - Y range: {SPAWN_Y_MIN} – {SPAWN_Y_MAX} m
         - Z fixed at table height: 0.012 m
         """
         msg = Twist()
-        msg.linear.x = random.uniform(0.22, 0.40)
-        msg.linear.y = random.uniform(-0.12, 0.18)
+        msg.linear.x = random.uniform(SPAWN_X_MIN, SPAWN_X_MAX)
+        msg.linear.y = random.uniform(SPAWN_Y_MIN, SPAWN_Y_MAX)
         msg.linear.z = 0.012
         self.publisher_respawn.publish(msg)
         self.get_logger().info(
