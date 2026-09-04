@@ -376,3 +376,33 @@ nvidia-smi   # Verificar uso de VRAM
 > ```bash
 > docker rmi nvcr.io/nvidia/isaac-sim:6.0.0
 > ```
+
+>>**5. Para crear un cointainer compatible con la ultima version de isaac sim 6 y ademas waylan**
+> ```bash
+> docker run --name isaac-sim-6.0-wayland \
+    --entrypoint bash \
+    -it \
+    --gpus all \
+    --network=host \
+    --shm-size=16gb \
+    -e "ACCEPT_EULA=Y" \
+    -e "PRIVACY_CONSENT=Y" \
+    -e NVIDIA_DRIVER_CAPABILITIES=all \
+    -e NVIDIA_VISIBLE_DEVICES=all \
+    -e DISPLAY=$DISPLAY \
+    -e GDK_BACKEND=x11 \
+    -e QT_QPA_PLATFORM=xcb \
+    -e SDL_VIDEODRIVER=x11 \
+    -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+    -v ~/docker/isaac-sim/cache/kit:/isaac-sim/kit/cache:rw \
+    -v ~/docker/isaac-sim/cache/ov:/root/.cache/ov:rw \
+    -v ~/docker/isaac-sim/cache/pip:/root/.cache/pip:rw \
+    -v ~/docker/isaac-sim/cache/glcache:/root/.cache/nvidia/GLCache:rw \
+    -v ~/docker/isaac-sim/cache/computecache:/root/.nv/ComputeCache:rw \
+    -v ~/docker/isaac-sim/logs:/root/.nvidia-omniverse/logs:rw \
+    -v ~/docker/isaac-sim/data:/root/.local/share/ov/data:rw \
+    -v ~/Documents/gits/robo_imitate:/workspace/robo_imitate \
+    nvcr.io/nvidia/isaac-sim:6.0.0
+-- MULTILINE -- (RET or C-m: insert a newline, C-j: run)
+> ```
+
